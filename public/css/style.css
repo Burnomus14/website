@@ -151,6 +151,15 @@ a { color: inherit; }
   border-color: var(--ink);
 }
 
+.search-result-popup {
+  padding: 12px 5vw;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* ---------- Gallery grid ---------- */
 .gallery {
   display: grid;

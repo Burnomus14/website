@@ -2,6 +2,7 @@ const galleryEl = document.getElementById('gallery');
 const filterBtns = document.querySelectorAll('.filter-btn');
 const searchInput = document.getElementById('search-input');
 const clearSearch = document.getElementById('clear-search');
+const searchResultPopup = document.getElementById('search-result-popup');
 let sellerPhoneNumber = '';
 
 let allItems = [];
@@ -10,7 +11,6 @@ let searchQuery = '';
 let cart = JSON.parse(localStorage.getItem('shoe_cart') || '[]');
 let activeProduct = null;
 let lastFocusedElement = null;
-let lastSearchResultCount = null;
 
 async function loadItems() {
   try {
@@ -45,10 +45,12 @@ function getItemImages(item) {
 
 function render() {
   const items = allItems.filter(item => matchesFilter(item) && matchesSearch(item));
-  if (searchQuery && items.length > 0 && items.length !== lastSearchResultCount) {
-    showToast(`${items.length} ${items.length === 1 ? 'result' : 'results'} found`);
+  if (searchResultPopup) {
+    searchResultPopup.textContent = searchQuery && items.length > 0
+      ? `${items.length} ${items.length === 1 ? 'result' : 'results'} found`
+      : '';
+    searchResultPopup.hidden = !searchQuery || items.length === 0;
   }
-  lastSearchResultCount = searchQuery ? items.length : null;
   if (items.length === 0) {
     galleryEl.innerHTML = `<div class="empty-state"><h2>Nothing here yet</h2><p>Add items from the admin panel to start the archive.</p></div>`;
     return;
@@ -304,7 +306,6 @@ function showToast(message) {
 
 searchInput.addEventListener('input', event => {
   searchQuery = event.target.value.toLowerCase().trim();
-  if (!searchQuery) lastSearchResultCount = null;
   clearSearch.hidden = !searchQuery;
   render();
 });
