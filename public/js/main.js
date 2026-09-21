@@ -208,10 +208,11 @@ function sendBasketToWhatsApp() {
   let grandTotal = 0;
 
   cart.forEach((item, index) => {
-    const itemTotal = item.price * item.quantity;
+    const itemPrice = parseFloat(item.price) || 0;
+    const itemTotal = itemPrice * item.quantity;
     grandTotal += itemTotal;
     message += `${index + 1}. *${item.name}*\n` +
-      `   Qty: ${item.quantity} × KSh ${parseFloat(item.price).toFixed(2)} = KSh ${itemTotal.toFixed(2)}\n`;
+      `   Qty: ${item.quantity} × KSh ${itemPrice.toFixed(2)} = KSh ${itemTotal.toFixed(2)}\n\n`;
   });
 
   message += `\n💰 *Total Amount:* KSh ${grandTotal.toFixed(2)}\n\n` +
@@ -228,21 +229,22 @@ function renderCartModal() {
   if (!container || !totalElement) return;
   if (cart.length === 0) {
     container.innerHTML = '<p class="empty-cart-msg">Your basket is currently empty.</p>';
-    totalElement.textContent = '$0.00';
+    totalElement.textContent = 'KSh 0.00';
     return;
   }
 
-  let total = 0;
-  container.innerHTML = cart.map(item => {
-    const price = parseFloat(item.price) || 0;
-    total += price * item.quantity;
-    const image = getItemImages(item)[0];
+  let grandTotal = 0;
+  let itemsHtml = cart.map(item => {
+    const itemPrice = parseFloat(item.price) || 0;
+    const itemTotal = itemPrice * item.quantity;
+    grandTotal += itemTotal;
+    const itemImage = getItemImages(item)[0];
     return `
       <div class="cart-item">
-        ${image ? `<img src="${image}" alt="" />` : '<div class="cart-item-image"></div>'}
+        ${itemImage ? `<img src="${itemImage}" alt="${escapeHtml(item.name)}" />` : '<div class="cart-item-image"></div>'}
         <div class="cart-item-details">
           <h4>${escapeHtml(item.name)}</h4>
-          <p class="cart-item-price">${escapeHtml(item.price || 'Price on request')}</p>
+          <p class="cart-item-price">KSh ${itemPrice.toFixed(2)}</p>
           <div class="quantity-controls">
             <button type="button" data-quantity-id="${item.id}" data-delta="-1" aria-label="Decrease quantity">-</button>
             <span>${item.quantity}</span>
@@ -252,7 +254,16 @@ function renderCartModal() {
         <button class="remove-btn" type="button" data-remove-id="${item.id}" aria-label="Remove item">&times;</button>
       </div>`;
   }).join('');
-  totalElement.textContent = `$${total.toFixed(2)}`;
+
+  itemsHtml += `
+    <div class="basket-action-wrapper">
+      <button class="btn-whatsapp-cart" id="send-whatsapp-cart" type="button">Send Basket to WhatsApp</button>
+    </div>`;
+
+  container.innerHTML = itemsHtml;
+  totalElement.textContent = `KSh ${grandTotal.toFixed(2)}`;
+
+  document.getElementById('send-whatsapp-cart').addEventListener('click', sendBasketToWhatsApp);
 
   container.querySelectorAll('[data-quantity-id]').forEach(button => {
     button.addEventListener('click', () => updateQuantity(button.dataset.quantityId, Number(button.dataset.delta)));
@@ -269,7 +280,6 @@ function setupCartUI() {
     modal.classList.add('active');
   });
   document.getElementById('close-cart').addEventListener('click', () => modal.classList.remove('active'));
-  document.getElementById('send-whatsapp-cart').addEventListener('click', sendBasketToWhatsApp);
 }
 
 function escapeHtml(str) {
