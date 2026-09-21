@@ -52,9 +52,12 @@ This is a small Node app, so it deploys easily to something like Render, Railway
    - `ADMIN_PASSWORD` = your private admin password
    - `API_SECRET_KEY` = a private random value
    - `DATABASE_URL` = your database connection string, if used
+   - `CLOUDINARY_CLOUD_NAME` = your Cloudinary cloud name
+   - `CLOUDINARY_API_KEY` = your Cloudinary API key
+   - `CLOUDINARY_API_SECRET` = your Cloudinary API secret
 4. Deploy the web service. Render provides the public URL after the build finishes.
 
-The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. The app stores catalog data and new uploads on that disk while keeping `/uploads/<filename>` image URLs unchanged. Existing images that were not committed to Git must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; use Cloudinary or S3 if you later need multiple instances or larger media storage.
+The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. When the three Cloudinary variables are set, new admin uploads are stored in the `shoe_collection` Cloudinary folder and use permanent Cloudinary URLs. Without them, the app falls back to the persistent disk and `/uploads/<filename>` URLs. Existing local images must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; Cloudinary is preferred for multi-instance deployments.
 
 ## Customizing the look
 

@@ -188,7 +188,7 @@ function orderSingleWhatsApp(productId) {
   const product = allItems.find(item => String(item.id) === String(productId));
   if (!product) return;
   const message = `Hello! I would like to buy this item:\n\nItem: ${product.name}\nPrice: ${product.price || 'Price on request'}\n\nPlease let me know how to proceed.`;
-  window.open(`https://wa.me/${sellerPhoneNumber}?text=${encodeURIComponent(message)}`, '_blank');
+  openSellerWhatsApp(message);
 }
 
 function sendBasketToWhatsApp() {
@@ -198,7 +198,17 @@ function sendBasketToWhatsApp() {
   }
   const lines = cart.map((item, index) => `${index + 1}. ${item.name} x${item.quantity} - ${item.price || 'Price on request'}`);
   const message = `Hello! I would like to order:\n\n${lines.join('\n')}\n\nPlease confirm availability and payment options.`;
-  window.open(`https://wa.me/${sellerPhoneNumber}?text=${encodeURIComponent(message)}`, '_blank');
+  openSellerWhatsApp(message);
+}
+
+function openSellerWhatsApp(message) {
+  const phone = String(sellerPhoneNumber || '').replace(/\D/g, '');
+  if (!phone) {
+    showToast('Seller WhatsApp is unavailable');
+    return;
+  }
+  const url = `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}&type=phone_number&app_absent=0`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function renderCartModal() {

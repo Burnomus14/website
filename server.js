@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -9,6 +10,19 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
+const CLOUDINARY_ENABLED = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
+
+if (CLOUDINARY_ENABLED) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
 
 // ---- Config ----
 // Change this to your own password before running the site.
@@ -97,6 +111,43 @@ function removeUnreferencedMedia(urls, items) {
   }
 }
 
+async function uploadMedia(files) {
+  if (!CLOUDINARY_ENABLED) {
+    return {
+      images: files.map(file => `/uploads/${file.filename}`),
+      publicIds: []
+    };
+  }
+
+  const uploaded = [];
+  try {
+    for (const file of files) {
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: 'shoe_collection',
+        resource_type: 'image'
+      });
+      uploaded.push({ url: result.secure_url, publicId: result.public_id });
+    }
+  } catch (error) {
+    await Promise.all(uploaded.map(media => cloudinary.uploader.destroy(media.publicId, { resource_type: 'image' })));
+    throw error;
+  } finally {
+    for (const file of files) fs.unlink(file.path, () => {});
+  }
+
+  return {
+    images: uploaded.map(media => media.url),
+    publicIds: uploaded.map(media => media.publicId)
+  };
+}
+
+async function removeCloudinaryMedia(publicIds) {
+  if (!CLOUDINARY_ENABLED || !Array.isArray(publicIds)) return;
+  await Promise.all(publicIds.filter(Boolean).map(publicId =>
+    cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
+  ));
+}
+
 // ---- Auth routes ----
 app.post('/api/login', (req, res) => {
   const { password } = req.body;
@@ -124,14 +175,20 @@ app.get('/api/config', (req, res) => {
 });
 
 // ---- Admin routes (all require a valid session token) ----
-app.post('/api/items', requireAuth, uploadImages, (req, res) => {
+app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
   const { name, category, caption, price, status } = req.body;
   if (!name || !category) {
     return res.status(400).json({ error: 'Name and category are required' });
   }
   const items = readItems();
   const uploadedFiles = getUploadedFiles(req);
-  const images = uploadedFiles.map(file => `/uploads/${file.filename}`);
+  let media;
+  try {
+    media = await uploadMedia(uploadedFiles);
+  } catch (error) {
+    console.error('Image upload failed:', error);
+    return res.status(500).json({ error: 'Image upload failed' });
+  }
   const item = {
     id: crypto.randomBytes(6).toString('hex'),
     name,
@@ -139,8 +196,9 @@ app.post('/api/items', requireAuth, uploadImages, (req, res) => {
     caption: caption || '',
     price: price || '',
     status: status || 'in-stock',   // "in-stock" | "sold" | "regular"
-    images,
-    image: images[0] || null,
+    images: media.images,
+    image: media.images[0] || null,
+    cloudinaryPublicIds: media.publicIds,
     createdAt: Date.now()
   };
   items.push(item);
@@ -148,7 +206,7 @@ app.post('/api/items', requireAuth, uploadImages, (req, res) => {
   res.status(201).json(item);
 });
 
-app.patch('/api/items/:id', requireAuth, uploadImages, (req, res) => {
+app.patch('/api/items/:id', requireAuth, uploadImages, async (req, res) => {
   const items = readItems();
   const idx = items.findIndex(i => i.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found' });
@@ -157,8 +215,16 @@ app.patch('/api/items/:id', requireAuth, uploadImages, (req, res) => {
   const existing = items[idx];
   const uploadedFiles = getUploadedFiles(req);
   const oldMedia = getMediaUrls(existing);
-  const uploadedImages = uploadedFiles.map(file => `/uploads/${file.filename}`);
-  const images = uploadedFiles.length ? uploadedImages : existing.images;
+  let media = null;
+  if (uploadedFiles.length) {
+    try {
+      media = await uploadMedia(uploadedFiles);
+    } catch (error) {
+      console.error('Image upload failed:', error);
+      return res.status(500).json({ error: 'Image upload failed' });
+    }
+  }
+  const images = media ? media.images : existing.images;
   items[idx] = {
     ...existing,
     name: name ?? existing.name,
@@ -166,20 +232,22 @@ app.patch('/api/items/:id', requireAuth, uploadImages, (req, res) => {
     caption: caption ?? existing.caption,
     price: price ?? existing.price,
     status: status ?? existing.status,
-    ...(uploadedFiles.length ? { images, image: uploadedImages[0] } : {})
+    ...(media ? { images, image: media.images[0] || null, cloudinaryPublicIds: media.publicIds } : {})
   };
   writeItems(items);
   if (uploadedFiles.length) removeUnreferencedMedia(oldMedia, items);
+  if (media) await removeCloudinaryMedia(existing.cloudinaryPublicIds);
   res.json(items[idx]);
 });
 
-app.delete('/api/items/:id', requireAuth, (req, res) => {
+app.delete('/api/items/:id', requireAuth, async (req, res) => {
   const items = readItems();
   const idx = items.findIndex(i => i.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found' });
   const [removed] = items.splice(idx, 1);
   writeItems(items);
   removeUnreferencedMedia(getMediaUrls(removed), items);
+  await removeCloudinaryMedia(removed.cloudinaryPublicIds);
   res.json({ ok: true });
 });
 

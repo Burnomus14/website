@@ -11,6 +11,12 @@ services:
     envVars:
       - key: STORAGE_DIR
         value: /opt/render/project/src/storage
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
       - key: SELLER_PHONE_NUMBER
         sync: false
       - key: ADMIN_PASSWORD
