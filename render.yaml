@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: shoe-collection-site
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SELLER_PHONE_NUMBER
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: API_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Collection</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a href="/" class="brand">THE<span>&nbsp;COLLECTION</span></a>
+  <nav>
+    <a href="#gallery" class="active">Archive</a>
+    <button class="cart-trigger-btn" id="cart-btn" type="button" aria-label="Open basket">Basket <span class="cart-badge" id="cart-count">0</span></button>
+    <a href="/admin.html">Admin</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <h1>Every pair, every piece, on record.</h1>
+  <p>A running archive of the shoes and clothes that pass through  what's here, what's new, and what's already gone.</p>
+</section>
+
+<div class="search-container">
+  <label class="sr-only" for="search-input">Search the collection</label>
+  <div class="search-box">
+    <span aria-hidden="true">/</span>
+    <input type="search" id="search-input" placeholder="Search by name or caption..." autocomplete="off" />
+    <button id="clear-search" type="button" aria-label="Clear search" hidden>&times;</button>
+  </div>
+</div>
+
+<div class="filters" id="filters">
+  <button class="filter-btn active" data-filter="all">All</button>
+  <button class="filter-btn" data-filter="shoes">Shoes</button>
+  <button class="filter-btn" data-filter="clothes">Clothes</button>
+  <button class="filter-btn" data-filter="full outfit">Full Outfit</button>
+  <button class="filter-btn" data-filter="in-stock">In stock</button>
+  <button class="filter-btn" data-filter="sold">Sold</button>
+</div>
+
+<main class="gallery" id="gallery">
+  <!-- items injected by main.js -->
+</main>
+
+<aside class="cart-modal" id="cart-modal" aria-label="Basket">
+  <div class="cart-header">
+    <h2>Your basket</h2>
+    <button class="close-btn" id="close-cart" type="button" aria-label="Close basket">&times;</button>
+  </div>
+  <div class="cart-items" id="cart-items-container"></div>
+  <div class="cart-footer">
+    <div class="cart-summary"><span>Total</span><span id="cart-total-price">$0.00</span></div>
+    <button class="btn-whatsapp-cart" id="send-whatsapp-cart" type="button">Send basket on WhatsApp</button>
+  </div>
+</aside>
+
+<div class="product-modal" id="product-modal" role="dialog" aria-modal="true" aria-labelledby="modal-product-title" hidden>
+  <div class="product-modal-content">
+    <button id="close-product-modal" class="modal-close-btn" type="button" aria-label="Close product details">&times;</button>
+    <div class="product-modal-body">
+      <div class="gallery-container">
+        <div class="main-image-wrapper">
+          <img id="gallery-main-img" src="" alt="" />
+        </div>
+        <div id="gallery-thumbnails" class="gallery-thumbnails" aria-label="Product images"></div>
+      </div>
+      <div class="product-modal-info">
+        <p class="modal-eyebrow">Collection piece</p>
+        <h2 id="modal-product-title"></h2>
+        <p id="modal-product-price" class="modal-price"></p>
+        <p id="modal-product-desc" class="modal-description"></p>
+        <div class="modal-actions">
+          <button id="modal-add-cart" class="btn btn-add-cart" type="button">Add to basket</button>
+          <button id="modal-buy-whatsapp" class="btn btn-whatsapp-direct" type="button">WhatsApp</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="footer">
+  <p class="footer-copyright">Copyright 2026</p>
+  <div class="footer-signature">schngor</div>
+  <p>Managed from the <a href="/admin.html">admin panel</a>.</p>
+</footer>
+
+<script src="/js/main.js"></script>
+</body>
+</html>
+

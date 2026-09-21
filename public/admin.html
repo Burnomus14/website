@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Admin — The Collection</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a href="/" class="brand">THE<span>&nbsp;COLLECTION</span></a>
+  <nav>
+    <a href="/">Archive</a>
+    <a href="/admin.html" class="active">Admin</a>
+  </nav>
+</header>
+
+<!-- Login screen -->
+<section class="login-box" id="loginBox">
+  <h1>Admin sign-in</h1>
+  <form id="loginForm">
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required />
+    </div>
+    <button class="btn" type="submit" style="width:100%">Sign in</button>
+    <p class="error-msg" id="loginError"></p>
+  </form>
+</section>
+
+<!-- Admin dashboard (hidden until signed in) -->
+<div class="admin-wrap" id="adminWrap" style="display:none">
+  <div class="admin-header">
+    <h1>Manage the collection</h1>
+    <button class="btn ghost" id="logoutBtn">Sign out</button>
+  </div>
+
+  <section class="admin-form">
+    <h2 id="formTitle">Add a new item</h2>
+    <form id="itemForm">
+      <input type="hidden" id="itemId" value="" />
+      <div class="form-grid">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" id="name" required />
+        </div>
+        <div class="field">
+          <label for="category">Category</label>
+          <select id="category" required>
+            <option value="shoes">Shoes</option>
+            <option value="clothes">Clothes</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="price">Price (optional)</label>
+          <input type="text" id="price" placeholder="e.g. $120" />
+        </div>
+        <div class="field">
+          <label for="status">Status</label>
+          <select id="status">
+            <option value="in-stock">In stock</option>
+            <option value="regular">In the archive</option>
+            <option value="sold">Sold</option>
+          </select>
+        </div>
+        <div class="field span-2">
+          <label for="caption">Caption</label>
+          <textarea id="caption" placeholder="A line or two about this piece"></textarea>
+        </div>
+        <div class="field span-2">
+          <label for="image">Images (up to 12)</label>
+          <input type="file" id="image" accept="image/*" multiple />
+        </div>
+      </div>
+      <div class="row-actions" style="margin-top:18px">
+        <button class="btn" type="submit" id="submitBtn">Add item</button>
+        <button class="btn ghost" type="button" id="cancelEditBtn" style="display:none">Cancel edit</button>
+      </div>
+      <p class="error-msg" id="formError"></p>
+    </form>
+  </section>
+
+  <section>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Price</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="itemsTableBody"></tbody>
+    </table>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/admin.js"></script>
+</body>
+</html>

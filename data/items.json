@@ -1,0 +1,18 @@
+[
+  {
+    "id": "e4ac3e1109dd",
+    "name": "shox",
+    "category": "shoes",
+    "caption": "",
+    "price": "4500ksh",
+    "status": "in-stock",
+    "image": "/uploads/1cde5eb632c72bd4.jpg",
+    "createdAt": 1789999655130,
+    "images": [
+      "/uploads/1cde5eb632c72bd4.jpg",
+      "/uploads/8609ea1908f5deab.jpg",
+      "/uploads/5ef9b5a9af32f21f.jpg",
+      "/uploads/b0e6a98da157858d.jpg"
+    ]
+  }
+]
