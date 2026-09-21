@@ -187,28 +187,39 @@ function updateCartCount() {
 function orderSingleWhatsApp(productId) {
   const product = allItems.find(item => String(item.id) === String(productId));
   if (!product) return;
-  const message = `Hello! I would like to buy this item:\n\nItem: ${product.name}\nPrice: ${product.price || 'Price on request'}\n\nPlease let me know how to proceed.`;
-  openSellerWhatsApp(message);
+
+  const message = `Hello! I would like to buy this item:\n\n` +
+    `👟 *Item:* ${product.name}\n` +
+    `💵 *Price:* KSh ${parseFloat(product.price).toFixed(2)}\n\n` +
+    `Please let me know how to proceed with payment and delivery.`;
+
+  const encodedMessage = encodeURIComponent(message);
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=254728074301&text=${encodedMessage}`;
+  window.open(whatsappUrl, '_blank');
 }
 
 function sendBasketToWhatsApp() {
   if (cart.length === 0) {
-    showToast('Your basket is empty');
+    alert('Your basket is empty!');
     return;
   }
-  const lines = cart.map((item, index) => `${index + 1}. ${item.name} x${item.quantity} - ${item.price || 'Price on request'}`);
-  const message = `Hello! I would like to order:\n\n${lines.join('\n')}\n\nPlease confirm availability and payment options.`;
-  openSellerWhatsApp(message);
-}
 
-function openSellerWhatsApp(message) {
-  const phone = String(sellerPhoneNumber || '').replace(/\D/g, '');
-  if (!phone) {
-    showToast('Seller WhatsApp is unavailable');
-    return;
-  }
-  const url = `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}&type=phone_number&app_absent=0`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+  let message = `Hello! I would like to order the following basket items:\n\n`;
+  let grandTotal = 0;
+
+  cart.forEach((item, index) => {
+    const itemTotal = item.price * item.quantity;
+    grandTotal += itemTotal;
+    message += `${index + 1}. *${item.name}*\n` +
+      `   Qty: ${item.quantity} × KSh ${parseFloat(item.price).toFixed(2)} = KSh ${itemTotal.toFixed(2)}\n`;
+  });
+
+  message += `\n💰 *Total Amount:* KSh ${grandTotal.toFixed(2)}\n\n` +
+    `Please confirm availability and payment options.`;
+
+  const encodedMessage = encodeURIComponent(message);
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=254728074301&text=${encodedMessage}`;
+  window.open(whatsappUrl, '_blank');
 }
 
 function renderCartModal() {
