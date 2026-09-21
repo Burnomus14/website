@@ -4,7 +4,13 @@ services:
     runtime: node
     buildCommand: npm install
     startCommand: npm start
+    disk:
+      name: shoe-collection-data
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 1
     envVars:
+      - key: STORAGE_DIR
+        value: /opt/render/project/src/storage
       - key: SELLER_PHONE_NUMBER
         sync: false
       - key: ADMIN_PASSWORD

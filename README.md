@@ -54,7 +54,7 @@ This is a small Node app, so it deploys easily to something like Render, Railway
    - `DATABASE_URL` = your database connection string, if used
 4. Deploy the web service. Render provides the public URL after the build finishes.
 
-The included `render.yaml` configures `npm install` and `npm start`. Render web services have an ephemeral filesystem by default, so configure persistent storage or external storage before relying on uploaded images and catalog data in production.
+The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. The app stores catalog data and new uploads on that disk while keeping `/uploads/<filename>` image URLs unchanged. Existing images that were not committed to Git must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; use Cloudinary or S3 if you later need multiple instances or larger media storage.
 
 ## Customizing the look
 

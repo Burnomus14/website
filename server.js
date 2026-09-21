@@ -13,8 +13,17 @@ const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
 // ---- Config ----
 // Change this to your own password before running the site.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
-const DATA_FILE = path.join(__dirname, 'data', 'items.json');
-const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+const STORAGE_DIR = process.env.STORAGE_DIR || '';
+const DATA_DIR = STORAGE_DIR ? path.join(STORAGE_DIR, 'data') : path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'items.json');
+const UPLOADS_DIR = STORAGE_DIR ? path.join(STORAGE_DIR, 'uploads') : path.join(__dirname, 'public', 'uploads');
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (STORAGE_DIR && !fs.existsSync(DATA_FILE)) {
+  const bundledDataFile = path.join(__dirname, 'data', 'items.json');
+  if (fs.existsSync(bundledDataFile)) fs.copyFileSync(bundledDataFile, DATA_FILE);
+}
 
 // Active admin session tokens live in memory only — they reset when the
 // server restarts, which is fine for a single-owner admin panel.
@@ -23,6 +32,7 @@ const activeSessions = new Set();
 // ---- Middleware ----
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 function requireAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
