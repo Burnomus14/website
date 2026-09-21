@@ -25,3 +25,5 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false

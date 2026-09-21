@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
+const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -10,6 +11,29 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
+let firestore = null;
+
+function initializeFirebase() {
+  let serviceAccount;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else {
+    const localKeyPath = path.join(__dirname, 'firebase-key.json');
+    if (fs.existsSync(localKeyPath)) serviceAccount = require(localKeyPath);
+  }
+
+  if (!serviceAccount) return;
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  firestore = admin.firestore();
+}
+
+try {
+  initializeFirebase();
+} catch (error) {
+  console.error('Firebase initialization failed:', error.message);
+}
+
+const productsCollection = () => firestore?.collection('products');
 const CLOUDINARY_ENABLED = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
@@ -64,8 +88,34 @@ function readItems() {
   })) : [];
 }
 
-function writeItems(items) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(items, null, 2));
+async function readCatalogItems() {
+  if (!firestore) return readItems();
+  const snapshot = await productsCollection().get();
+  return snapshot.docs.map(doc => {
+    const item = { id: doc.id, ...doc.data() };
+    if (item.createdAt?.toMillis) item.createdAt = item.createdAt.toMillis();
+    if (item.status === 'new') item.status = 'in-stock';
+    return item;
+  });
+}
+
+async function writeItems(items) {
+  if (!firestore) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(items, null, 2));
+    return;
+  }
+
+  const existing = await productsCollection().get();
+  const nextIds = new Set(items.map(item => item.id));
+  const batch = firestore.batch();
+  existing.docs.forEach(doc => {
+    if (!nextIds.has(doc.id)) batch.delete(doc.ref);
+  });
+  items.forEach(item => {
+    const { id, ...data } = item;
+    batch.set(productsCollection().doc(id), data);
+  });
+  await batch.commit();
 }
 
 // ---- Image upload ----
@@ -165,9 +215,14 @@ app.post('/api/logout', requireAuth, (req, res) => {
 });
 
 // ---- Public routes ----
-app.get('/api/items', (req, res) => {
-  const items = readItems().sort((a, b) => b.createdAt - a.createdAt);
-  res.json(items);
+app.get('/api/items', async (req, res) => {
+  try {
+    const items = (await readCatalogItems()).sort((a, b) => b.createdAt - a.createdAt);
+    res.json(items);
+  } catch (error) {
+    console.error('Error fetching items:', error);
+    res.status(500).json({ error: 'Failed to fetch catalog' });
+  }
 });
 
 app.get('/api/config', (req, res) => {
@@ -180,7 +235,7 @@ app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
   if (!name || !category) {
     return res.status(400).json({ error: 'Name and category are required' });
   }
-  const items = readItems();
+  const items = await readCatalogItems();
   const uploadedFiles = getUploadedFiles(req);
   let media;
   try {
@@ -202,12 +257,12 @@ app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
     createdAt: Date.now()
   };
   items.push(item);
-  writeItems(items);
+  await writeItems(items);
   res.status(201).json(item);
 });
 
 app.patch('/api/items/:id', requireAuth, uploadImages, async (req, res) => {
-  const items = readItems();
+  const items = await readCatalogItems();
   const idx = items.findIndex(i => i.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found' });
 
@@ -234,18 +289,18 @@ app.patch('/api/items/:id', requireAuth, uploadImages, async (req, res) => {
     status: status ?? existing.status,
     ...(media ? { images, image: media.images[0] || null, cloudinaryPublicIds: media.publicIds } : {})
   };
-  writeItems(items);
+  await writeItems(items);
   if (uploadedFiles.length) removeUnreferencedMedia(oldMedia, items);
   if (media) await removeCloudinaryMedia(existing.cloudinaryPublicIds);
   res.json(items[idx]);
 });
 
 app.delete('/api/items/:id', requireAuth, async (req, res) => {
-  const items = readItems();
+  const items = await readCatalogItems();
   const idx = items.findIndex(i => i.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found' });
   const [removed] = items.splice(idx, 1);
-  writeItems(items);
+  await writeItems(items);
   removeUnreferencedMedia(getMediaUrls(removed), items);
   await removeCloudinaryMedia(removed.cloudinaryPublicIds);
   res.json({ ok: true });

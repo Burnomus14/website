@@ -55,9 +55,12 @@ This is a small Node app, so it deploys easily to something like Render, Railway
    - `CLOUDINARY_CLOUD_NAME` = your Cloudinary cloud name
    - `CLOUDINARY_API_KEY` = your Cloudinary API key
    - `CLOUDINARY_API_SECRET` = your Cloudinary API secret
+   - `FIREBASE_SERVICE_ACCOUNT` = the Firebase service-account JSON as a single-line value
 4. Deploy the web service. Render provides the public URL after the build finishes.
 
 The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. When the three Cloudinary variables are set, new admin uploads are stored in the `shoe_collection` Cloudinary folder and use permanent Cloudinary URLs. Without them, the app falls back to the persistent disk and `/uploads/<filename>` URLs. Existing local images must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; Cloudinary is preferred for multi-instance deployments.
+
+When `FIREBASE_SERVICE_ACCOUNT` is configured, catalog records are stored in the Firestore `products` collection while the existing authenticated admin API and storefront remain unchanged. For local development, you can instead place the downloaded service-account file at `firebase-key.json`; it is ignored by Git. The Firebase browser configuration is not needed because the app accesses Firestore only from the server.
 
 ## Customizing the look
 
