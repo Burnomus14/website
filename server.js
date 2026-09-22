@@ -240,6 +240,52 @@ app.post('/api/login', (req, res) => {
   return res.status(401).json({ error: 'Incorrect password' });
 });
 
+app.post('/api/admin/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const snapshot = await db.collection('admins')
+      .where('username', '==', username)
+      .where('password', '==', password)
+      .get();
+
+    if (snapshot.empty) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+
+    let adminData = {};
+    snapshot.forEach(doc => {
+      adminData = { id: doc.id, ...doc.data() };
+    });
+
+    const token = crypto.randomBytes(24).toString('hex');
+    activeSessions.add(token);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      admin: {
+        username: adminData.username,
+        email: adminData.email
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
+  }
+});
+
+app.get('/api/session', requireAuth, (req, res) => {
+  res.json({ authenticated: true });
+});
+
 app.post('/api/logout', requireAuth, (req, res) => {
   activeSessions.delete(req.headers['x-admin-token']);
   res.json({ ok: true });

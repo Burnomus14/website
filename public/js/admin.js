@@ -1,7 +1,4 @@
-const loginBox = document.getElementById('loginBox');
 const adminWrap = document.getElementById('adminWrap');
-const loginForm = document.getElementById('loginForm');
-const loginError = document.getElementById('loginError');
 const logoutBtn = document.getElementById('logoutBtn');
 
 const itemForm = document.getElementById('itemForm');
@@ -29,40 +26,13 @@ function showToast(msg) {
   setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
-function setSignedIn(signedIn) {
-  loginBox.style.display = signedIn ? 'none' : 'block';
-  adminWrap.style.display = signedIn ? 'block' : 'none';
-}
-
-// ---- Auth ----
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  loginError.textContent = '';
-  const password = document.getElementById('password').value;
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
-    });
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    token = data.token;
-    localStorage.setItem('adminToken', token);
-    setSignedIn(true);
-    loadItems();
-  } catch {
-    loginError.textContent = 'Incorrect password. Try again.';
-  }
-});
-
 logoutBtn.addEventListener('click', async () => {
   try {
     await authedFetch('/api/logout', { method: 'POST' });
   } catch {}
   token = null;
   localStorage.removeItem('adminToken');
-  setSignedIn(false);
+  window.location.href = '/admin-login.html';
 });
 
 async function authedFetch(url, options = {}) {
@@ -72,7 +42,7 @@ async function authedFetch(url, options = {}) {
   if (res.status === 401) {
     token = null;
     localStorage.removeItem('adminToken');
-    setSignedIn(false);
+    window.location.href = '/admin-login.html';
     throw new Error('Session expired');
   }
   return res;
@@ -217,9 +187,20 @@ function escapeHtml(str) {
 }
 
 // ---- Init ----
-if (token) {
-  setSignedIn(true);
-  loadItems();
-} else {
-  setSignedIn(false);
+async function initializeDashboard() {
+  if (!token) {
+    window.location.href = '/admin-login.html';
+    return;
+  }
+
+  try {
+    const res = await authedFetch('/api/session');
+    if (!res.ok) throw new Error('Session validation failed');
+    adminWrap.style.display = 'block';
+    await loadItems();
+  } catch {
+    window.location.href = '/admin-login.html';
+  }
 }
+
+initializeDashboard();

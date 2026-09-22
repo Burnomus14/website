@@ -12,25 +12,11 @@
   <a href="/" class="brand">THE<span>&nbsp;COLLECTION</span></a>
   <nav>
     <a href="/">Archive</a>
-    <a href="/admin.html" class="active">Admin</a>
+    <a href="/admin-login.html" class="active">Admin</a>
   </nav>
 </header>
 
-<!-- Login screen -->
-<section class="login-box" id="loginBox">
-  <h1>Admin sign-in</h1>
-  <form id="loginForm">
-    <div class="field">
-      <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="current-password" required />
-    </div>
-    <button class="btn" type="submit" style="width:100%">Sign in</button>
-    <p><a href="/reset-password.html">Forgot password?</a></p>
-    <p class="error-msg" id="loginError"></p>
-  </form>
-</section>
-
-<!-- Admin dashboard (hidden until signed in) -->
+<!-- Admin dashboard (shown after session validation) -->
 <div class="admin-wrap" id="adminWrap" style="display:none">
   <div class="admin-header">
     <h1>Manage the collection</h1>
