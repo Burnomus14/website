@@ -3,7 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -11,20 +12,36 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
-let firestore = null;
+let db = null;
+let productsCollection = null;
 
 function initializeFirebase() {
   let serviceAccount;
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    try {
+      serviceAccount = typeof process.env.FIREBASE_SERVICE_ACCOUNT === 'string'
+        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+        : process.env.FIREBASE_SERVICE_ACCOUNT;
+    } catch (error) {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', error.message);
+    }
   } else {
-    const localKeyPath = path.join(__dirname, 'firebase-key.json');
-    if (fs.existsSync(localKeyPath)) serviceAccount = require(localKeyPath);
+    try {
+      serviceAccount = require('./firebase-key.json');
+    } catch (error) {
+      console.warn('firebase-key.json not found locally.');
+    }
   }
 
-  if (!serviceAccount) return;
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-  firestore = admin.firestore();
+  if (!serviceAccount) {
+    console.error('Firebase initialization skipped: No valid service account provided.');
+    return;
+  }
+
+  initializeApp({ credential: cert(serviceAccount) });
+  db = getFirestore();
+  productsCollection = db.collection('products');
+  console.log('Firebase initialized successfully!');
 }
 
 try {
@@ -33,7 +50,6 @@ try {
   console.error('Firebase initialization failed:', error.message);
 }
 
-const productsCollection = () => firestore?.collection('products');
 const CLOUDINARY_ENABLED = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
@@ -217,11 +233,19 @@ app.post('/api/logout', requireAuth, (req, res) => {
 // ---- Public routes ----
 app.get('/api/items', async (req, res) => {
   try {
-    const items = (await readCatalogItems()).sort((a, b) => b.createdAt - a.createdAt);
-    res.json(items);
+    const snapshot = await productsCollection().orderBy('createdAt', 'desc').get();
+    const products = [];
+    snapshot.forEach(doc => {
+      products.push({ id: doc.id, ...doc.data() });
+    });
+    res.json(products);
   } catch (error) {
-    console.error('Error fetching items:', error);
-    res.status(500).json({ error: 'Failed to fetch catalog' });
+    console.error('FIREBASE FETCH ERROR:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Firebase connection failed',
+      error: error.message
+    });
   }
 });
 
