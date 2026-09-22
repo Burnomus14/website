@@ -105,8 +105,8 @@ function readItems() {
 }
 
 async function readCatalogItems() {
-  if (!firestore) return readItems();
-  const snapshot = await productsCollection().get();
+  if (!db) return readItems();
+  const snapshot = await productsCollection.get();
   return snapshot.docs.map(doc => {
     const item = { id: doc.id, ...doc.data() };
     if (item.createdAt?.toMillis) item.createdAt = item.createdAt.toMillis();
@@ -116,20 +116,20 @@ async function readCatalogItems() {
 }
 
 async function writeItems(items) {
-  if (!firestore) {
+  if (!db) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(items, null, 2));
     return;
   }
 
-  const existing = await productsCollection().get();
+  const existing = await productsCollection.get();
   const nextIds = new Set(items.map(item => item.id));
-  const batch = firestore.batch();
+  const batch = db.batch();
   existing.docs.forEach(doc => {
     if (!nextIds.has(doc.id)) batch.delete(doc.ref);
   });
   items.forEach(item => {
     const { id, ...data } = item;
-    batch.set(productsCollection().doc(id), data);
+    batch.set(productsCollection.doc(id), data);
   });
   await batch.commit();
 }
@@ -233,7 +233,7 @@ app.post('/api/logout', requireAuth, (req, res) => {
 // ---- Public routes ----
 app.get('/api/items', async (req, res) => {
   try {
-    const snapshot = await productsCollection().orderBy('createdAt', 'desc').get();
+    const snapshot = await productsCollection.orderBy('createdAt', 'desc').get();
     const products = [];
     snapshot.forEach(doc => {
       products.push({ id: doc.id, ...doc.data() });
