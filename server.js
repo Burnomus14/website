@@ -6,6 +6,8 @@ const cloudinary = require('cloudinary').v2;
 const admin = require('firebase-admin');
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
+const { getAuth } = require('firebase-admin/auth');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -42,6 +44,8 @@ if (serviceAccount && getApps().length === 0) {
 
 const db = getFirestore();
 const productsCollection = db.collection('products');
+const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
+const firebaseBucket = FIREBASE_STORAGE_BUCKET ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
 const CLOUDINARY_ENABLED = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
@@ -171,6 +175,24 @@ function removeUnreferencedMedia(urls, items) {
 }
 
 async function uploadMedia(files) {
+  if (firebaseBucket) {
+    const uploaded = [];
+    try {
+      for (const file of files) {
+        const fileName = `products/${Date.now()}_${file.originalname}`;
+        const [uploadedFile] = await firebaseBucket.upload(file.path, {
+          destination: fileName,
+          metadata: { contentType: file.mimetype }
+        });
+        await uploadedFile.makePublic();
+        uploaded.push(`https://storage.googleapis.com/${firebaseBucket.name}/${fileName}`);
+      }
+    } finally {
+      for (const file of files) fs.unlink(file.path, () => {});
+    }
+    return { images: uploaded, publicIds: [] };
+  }
+
   if (!CLOUDINARY_ENABLED) {
     return {
       images: files.map(file => `/uploads/${file.filename}`),
@@ -247,6 +269,28 @@ app.get('/api/config', (req, res) => {
 });
 
 // ---- Admin routes (all require a valid session token) ----
+app.post('/api/admin/create', requireAuth, async (req, res) => {
+  const { email, password, username } = req.body;
+  try {
+    const userRecord = await getAuth().createUser({
+      email,
+      password,
+      displayName: username
+    });
+
+    await db.collection('admin_profiles').doc(userRecord.uid).set({
+      username,
+      email,
+      role: 'admin',
+      createdAt: new Date()
+    });
+
+    res.json({ success: true, uid: userRecord.uid });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
   const { name, category, caption, price, status } = req.body;
   if (!name || !category) {
