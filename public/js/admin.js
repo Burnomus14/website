@@ -11,6 +11,13 @@ const cancelEditBtn = document.getElementById('cancelEditBtn');
 const formError = document.getElementById('formError');
 const tableBody = document.getElementById('itemsTableBody');
 const toast = document.getElementById('toast');
+const customUploadBtn = document.getElementById('customUploadBtn');
+const imageInput = document.getElementById('imageInput');
+
+customUploadBtn.addEventListener('click', () => {
+  imageInput.removeAttribute('capture');
+  imageInput.click();
+});
 
 let token = localStorage.getItem('adminToken') || null;
 let items = [];
