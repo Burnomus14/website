@@ -3,7 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
-const { initializeApp, cert } = require('firebase-admin/app');
+const admin = require('firebase-admin');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const fs = require('fs');
 const path = require('path');
@@ -12,43 +13,35 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
-let db = null;
-let productsCollection = null;
+let serviceAccount;
 
-function initializeFirebase() {
-  let serviceAccount;
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-      serviceAccount = typeof process.env.FIREBASE_SERVICE_ACCOUNT === 'string'
-        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-        : process.env.FIREBASE_SERVICE_ACCOUNT;
-    } catch (error) {
-      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', error.message);
-    }
-  } else {
-    try {
-      serviceAccount = require('./firebase-key.json');
-    } catch (error) {
-      console.warn('firebase-key.json not found locally.');
-    }
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = typeof process.env.FIREBASE_SERVICE_ACCOUNT === 'string'
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+      : process.env.FIREBASE_SERVICE_ACCOUNT;
+  } catch (error) {
+    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', error.message);
   }
-
-  if (!serviceAccount) {
-    console.error('Firebase initialization skipped: No valid service account provided.');
-    return;
+} else {
+  try {
+    serviceAccount = require('./firebase-key.json');
+  } catch (error) {
+    console.warn('firebase-key.json not found locally.');
   }
+}
 
-  initializeApp({ credential: cert(serviceAccount) });
-  db = getFirestore();
-  productsCollection = db.collection('products');
+if (serviceAccount && getApps().length === 0) {
+  initializeApp({
+    credential: cert(serviceAccount)
+  });
   console.log('Firebase initialized successfully!');
+} else if (!serviceAccount) {
+  console.error('Firebase initialization skipped: No valid service account provided.');
 }
 
-try {
-  initializeFirebase();
-} catch (error) {
-  console.error('Firebase initialization failed:', error.message);
-}
+const db = getFirestore();
+const productsCollection = db.collection('products');
 
 const CLOUDINARY_ENABLED = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
