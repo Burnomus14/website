@@ -195,9 +195,10 @@ function orderSingleWhatsApp(productId) {
   const product = allItems.find(item => String(item.id) === String(productId));
   if (!product) return;
 
+  const itemPrice = parseInt(product.price.toString().replace(/[^0-9]/g, ''), 10) || 0;
   const message = `Hello! I would like to buy this item:\n\n` +
     `👟 *Item:* ${product.name}\n` +
-    `💵 *Price:* KSh ${parseFloat(product.price).toFixed(2)}\n\n` +
+    `💵 *Price:* KSh ${itemPrice.toFixed(2)}\n\n` +
     `Please let me know how to proceed with payment and delivery.`;
 
   const encodedMessage = encodeURIComponent(message);
@@ -215,7 +216,7 @@ function sendBasketToWhatsApp() {
   let grandTotal = 0;
 
   cart.forEach((item, index) => {
-    const itemPrice = parseFloat(item.price) || 0;
+    const itemPrice = parseInt(item.price.toString().replace(/[^0-9]/g, ''), 10) || 0;
     const itemTotal = itemPrice * item.quantity;
     grandTotal += itemTotal;
     message += `${index + 1}. *${item.name}*\n` +
@@ -242,7 +243,7 @@ function renderCartModal() {
 
   let grandTotal = 0;
   let itemsHtml = cart.map(item => {
-    const itemPrice = parseFloat(item.price) || 0;
+    const itemPrice = parseInt(item.price.toString().replace(/[^0-9]/g, ''), 10) || 0;
     const itemTotal = itemPrice * item.quantity;
     grandTotal += itemTotal;
     const itemImage = getItemImages(item)[0];
