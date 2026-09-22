@@ -180,7 +180,7 @@ itemForm.addEventListener('submit', async (e) => {
   fd.append('price', document.getElementById('price').value.trim());
   fd.append('status', document.getElementById('status').value);
   fd.append('caption', document.getElementById('caption').value.trim());
-  const imageFiles = Array.from(document.getElementById('image').files);
+  const imageFiles = Array.from(document.getElementById('imageInput').files);
   if (imageFiles.length > 12) {
     formError.textContent = 'Choose up to 12 images.';
     submitBtn.disabled = false;

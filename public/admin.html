@@ -69,9 +69,15 @@
           <label for="caption">Caption</label>
           <textarea id="caption" placeholder="A line or two about this piece"></textarea>
         </div>
-        <div class="field span-2">
-          <label for="image">Images (up to 12)</label>
-          <input type="file" id="image" accept="image/*" multiple />
+        <div class="form-group">
+          <label for="imageInput">Product Image:</label>
+          <input
+            type="file"
+            id="imageInput"
+            name="image"
+            accept="image/png, image/jpeg, image/webp, image/jpg"
+            required
+          />
         </div>
       </div>
       <div class="row-actions" style="margin-top:18px">
