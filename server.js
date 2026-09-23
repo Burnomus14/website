@@ -159,6 +159,10 @@ const uploadImages = upload.fields([
   { name: 'images', maxCount: 12 },
   { name: 'image', maxCount: 1 }
 ]);
+const uploadImagesToImgBB = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }
+});
 
 function getUploadedFiles(req) {
   if (req.files?.images?.length) return req.files.images;
@@ -375,35 +379,63 @@ app.post('/api/admin/create', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
-  const { name, category, caption, price, status } = req.body;
-  if (!name || !category) {
-    return res.status(400).json({ error: 'Name and category are required' });
-  }
-  const items = await readCatalogItems();
-  const uploadedFiles = getUploadedFiles(req);
-  let media;
+app.post('/api/items', requireAuth, uploadImagesToImgBB.array('images', 12), async (req, res) => {
   try {
-    media = await uploadMedia(uploadedFiles);
+    const { name, category, price, status, caption } = req.body;
+    if (!name || !category) {
+      return res.status(400).json({ error: 'Name and category are required' });
+    }
+
+    const imgbbApiKey = process.env.IMGBB_API_KEY;
+    if (!imgbbApiKey) {
+      return res.status(500).json({ error: 'ImgBB API key is not configured' });
+    }
+
+    const imageUrls = [];
+    for (const file of req.files || []) {
+      const bodyParams = new URLSearchParams();
+      bodyParams.append('image', file.buffer.toString('base64'));
+
+      const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: bodyParams
+      });
+      const imgbbData = await imgbbResponse.json();
+      console.log('[IMGBB RESPONSE]:', imgbbData);
+
+      if (!imgbbResponse.ok || !imgbbData.success) {
+        console.error('[IMGBB ERROR]:', imgbbData.error);
+        return res.status(502).json({ error: 'Image upload failed' });
+      }
+      imageUrls.push(imgbbData.data.url);
+    }
+
+    const newItem = {
+      name,
+      category: category || 'Shoes',
+      price: Number(price) || 0,
+      status: status || 'In stock',
+      caption: caption || '',
+      image: imageUrls[0] || '',
+      images: imageUrls,
+      createdAt: new Date()
+    };
+
+    if (db) {
+      const docRef = await productsCollection.add(newItem);
+      return res.status(201).json({ success: true, id: docRef.id, item: newItem });
+    }
+
+    const items = await readCatalogItems();
+    const localItem = { id: crypto.randomBytes(6).toString('hex'), ...newItem, createdAt: Date.now() };
+    items.push(localItem);
+    await writeItems(items);
+    return res.status(201).json({ success: true, id: localItem.id, item: localItem });
   } catch (error) {
-    console.error('Image upload failed:', error);
-    return res.status(500).json({ error: 'Image upload failed' });
+    console.error('[PRODUCT CREATION ERROR]:', error);
+    return res.status(500).json({ error: error.message });
   }
-  const item = {
-    id: crypto.randomBytes(6).toString('hex'),
-    name,
-    category,           // "shoes" | "clothes"
-    caption: caption || '',
-    price: price || '',
-    status: status || 'in-stock',   // "in-stock" | "sold" | "regular"
-    images: media.images,
-    image: media.images[0] || null,
-    cloudinaryPublicIds: media.publicIds,
-    createdAt: Date.now()
-  };
-  items.push(item);
-  await writeItems(items);
-  res.status(201).json(item);
 });
 
 app.patch('/api/items/:id', requireAuth, uploadImages, async (req, res) => {
