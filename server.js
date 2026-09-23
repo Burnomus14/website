@@ -42,10 +42,18 @@ if (serviceAccount && getApps().length === 0) {
   console.error('Firebase initialization skipped: No valid service account provided.');
 }
 
-const db = getFirestore();
-const productsCollection = db.collection('products');
+const db = getApps().length ? getFirestore() : null;
+const productsCollection = db ? db.collection('products') : null;
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
-const firebaseBucket = FIREBASE_STORAGE_BUCKET ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
+const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
+
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
+const localAdmins = new Map();
+localAdmins.set('admin', {
+  username: 'admin',
+  password: ADMIN_PASSWORD,
+  email: 'admin@local'
+});
 
 const CLOUDINARY_ENABLED = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
@@ -63,7 +71,6 @@ if (CLOUDINARY_ENABLED) {
 
 // ---- Config ----
 // Change this to your own password before running the site.
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
 const STORAGE_DIR = process.env.STORAGE_DIR || '';
 const DATA_DIR = STORAGE_DIR ? path.join(STORAGE_DIR, 'data') : path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'items.json');
@@ -229,7 +236,35 @@ async function removeCloudinaryMedia(publicIds) {
   ));
 }
 
-// ---- Auth routes ----
+// ---- Admin bootstrap + auth routes ----
+async function ensureAdminExists() {
+  if (!db) {
+    localAdmins.set('admin', {
+      username: 'admin',
+      password: ADMIN_PASSWORD,
+      email: 'admin@local'
+    });
+    return;
+  }
+
+  try {
+    const adminsRef = db.collection('admins');
+    const snapshot = await adminsRef.get();
+    if (snapshot.empty) {
+      await adminsRef.doc('main_admin').set({
+        username: 'admin',
+        password: 'qwerty',
+        email: 'nsmskipruto@gmail.com'
+      });
+      console.log('✅ Admin account seeded in Firebase');
+    }
+  } catch (err) {
+    console.error('Error seeding admin:', err.message);
+  }
+}
+
+ensureAdminExists();
+
 app.post('/api/login', (req, res) => {
   const { password } = req.body;
   if (password && password === ADMIN_PASSWORD) {
@@ -241,44 +276,68 @@ app.post('/api/login', (req, res) => {
 });
 
 app.post('/api/admin/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { identifier, username, password } = req.body;
+  const lookup = identifier ?? username;
 
   try {
-    const snapshot = await db.collection('admins')
-      .where('username', '==', username)
-      .where('password', '==', password)
-      .get();
+    if (!db) {
+      const localAdmin = [...localAdmins.values()].find(admin =>
+        (admin.username === lookup || admin.email === lookup) && admin.password === password
+      );
 
-    if (snapshot.empty) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid username or password'
+      if (!localAdmin) {
+        return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+      }
+
+      const token = crypto.randomBytes(24).toString('hex');
+      activeSessions.add(token);
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        token,
+        admin: {
+          username: localAdmin.username,
+          email: localAdmin.email
+        }
       });
     }
 
-    let adminData = {};
+    const adminsRef = db.collection('admins');
+    const snapshot = await adminsRef.get();
+
+    if (snapshot.empty) {
+      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+    }
+
+    let authenticatedAdmin = null;
     snapshot.forEach(doc => {
-      adminData = { id: doc.id, ...doc.data() };
+      const data = doc.data();
+      const matchesIdentifier = (data.username === lookup || data.email === lookup);
+      const matchesPassword = (data.password === password);
+      if (matchesIdentifier && matchesPassword) {
+        authenticatedAdmin = data;
+      }
     });
+
+    if (!authenticatedAdmin) {
+      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+    }
 
     const token = crypto.randomBytes(24).toString('hex');
     activeSessions.add(token);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Login successful',
       token,
       admin: {
-        username: adminData.username,
-        email: adminData.email
+        username: authenticatedAdmin.username,
+        email: authenticatedAdmin.email
       }
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during login'
-    });
+    return res.status(500).json({ success: false, message: 'Database query error: ' + error.message });
   }
 });
 
