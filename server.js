@@ -52,7 +52,7 @@ const localAdmins = new Map();
 localAdmins.set('admin', {
   username: 'admin',
   password: ADMIN_PASSWORD,
-  email: 'admin@local'
+  email: 'nsmskipruto@gmail.com'
 });
 
 const CLOUDINARY_ENABLED = Boolean(
@@ -236,14 +236,9 @@ async function removeCloudinaryMedia(publicIds) {
   ));
 }
 
-// ---- Admin bootstrap + auth routes ----
+// Ensure default admin exists in Firestore on startup
 async function ensureAdminExists() {
   if (!db) {
-    localAdmins.set('admin', {
-      username: 'admin',
-      password: ADMIN_PASSWORD,
-      email: 'admin@local'
-    });
     return;
   }
 
@@ -265,16 +260,7 @@ async function ensureAdminExists() {
 
 ensureAdminExists();
 
-app.post('/api/login', (req, res) => {
-  const { password } = req.body;
-  if (password && password === ADMIN_PASSWORD) {
-    const token = crypto.randomBytes(24).toString('hex');
-    activeSessions.add(token);
-    return res.json({ token });
-  }
-  return res.status(401).json({ error: 'Incorrect password' });
-});
-
+// Flexible Admin Login Route
 app.post('/api/admin/login', async (req, res) => {
   const { identifier, username, password } = req.body;
   const lookup = identifier ?? username;
@@ -285,21 +271,18 @@ app.post('/api/admin/login', async (req, res) => {
         (admin.username === lookup || admin.email === lookup) && admin.password === password
       );
 
-      if (!localAdmin) {
-        return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+      if (localAdmin) {
+        const token = crypto.randomBytes(24).toString('hex');
+        activeSessions.add(token);
+        return res.json({
+          success: true,
+          message: 'Login successful',
+          token,
+          admin: { username: localAdmin.username, email: localAdmin.email }
+        });
       }
 
-      const token = crypto.randomBytes(24).toString('hex');
-      activeSessions.add(token);
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        token,
-        admin: {
-          username: localAdmin.username,
-          email: localAdmin.email
-        }
-      });
+      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
     }
 
     const adminsRef = db.collection('admins');
@@ -310,34 +293,30 @@ app.post('/api/admin/login', async (req, res) => {
     }
 
     let authenticatedAdmin = null;
+
     snapshot.forEach(doc => {
       const data = doc.data();
       const matchesIdentifier = (data.username === lookup || data.email === lookup);
       const matchesPassword = (data.password === password);
+
       if (matchesIdentifier && matchesPassword) {
         authenticatedAdmin = data;
       }
     });
 
-    if (!authenticatedAdmin) {
-      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+    if (authenticatedAdmin) {
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        token: 'authenticated-admin-session',
+        admin: { username: authenticatedAdmin.username, email: authenticatedAdmin.email }
+      });
     }
 
-    const token = crypto.randomBytes(24).toString('hex');
-    activeSessions.add(token);
+    return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
 
-    return res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      admin: {
-        username: authenticatedAdmin.username,
-        email: authenticatedAdmin.email
-      }
-    });
   } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ success: false, message: 'Database query error: ' + error.message });
+    res.status(500).json({ success: false, message: 'Database query error: ' + error.message });
   }
 });
 
