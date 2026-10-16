@@ -3,7 +3,7 @@ const filterBtns = document.querySelectorAll('.filter-btn');
 const searchInput = document.getElementById('search-input');
 const clearSearch = document.getElementById('clear-search');
 const searchResultPopup = document.getElementById('search-result-popup');
-let sellerPhoneNumber = '';
+let sellerPhoneNumber = '254728074301';
 
 let allItems = [];
 let activeFilter = 'all';
@@ -16,7 +16,8 @@ async function loadItems() {
   try {
     const [itemsRes, configRes] = await Promise.all([fetch('/api/items'), fetch('/api/config')]);
     allItems = await itemsRes.json();
-    ({ sellerPhone: sellerPhoneNumber } = await configRes.json());
+    const config = await configRes.json();
+    sellerPhoneNumber = config.sellerPhone || sellerPhoneNumber;
     render();
   } catch {
     galleryEl.innerHTML = `<div class="empty-state"><h2>Couldn't load the collection</h2><p>Make sure the server is running, then refresh.</p></div>`;
@@ -129,6 +130,12 @@ function openProductModal(productId) {
   }
 
   document.getElementById('modal-add-cart').onclick = () => addToCart(product.id);
+  document.getElementById('modal-buy-mpesa').onclick = () => startMpesaCheckout({
+    itemName: product.name,
+    amount: parsePrice(product.price),
+    itemId: product.id,
+    image: getItemImages(product)[0] || ''
+  });
   document.getElementById('modal-buy-whatsapp').onclick = () => orderSingleWhatsApp(product.id);
   modal.hidden = false;
   requestAnimationFrame(() => modal.classList.add('active'));
@@ -202,7 +209,7 @@ function orderSingleWhatsApp(productId) {
     `Please let me know how to proceed with payment and delivery.`;
 
   const encodedMessage = encodeURIComponent(message);
-  const whatsappUrl = `https://api.whatsapp.com/send?phone=254728074301&text=${encodedMessage}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${sellerPhoneNumber || '254728074301'}&text=${encodedMessage}`;
   window.open(whatsappUrl, '_blank');
 }
 
@@ -227,7 +234,7 @@ function sendBasketToWhatsApp() {
     `Please confirm availability and payment options.`;
 
   const encodedMessage = encodeURIComponent(message);
-  const whatsappUrl = `https://api.whatsapp.com/send?phone=254728074301&text=${encodedMessage}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${sellerPhoneNumber || '254728074301'}&text=${encodedMessage}`;
   window.open(whatsappUrl, '_blank');
 }
 
@@ -266,12 +273,14 @@ function renderCartModal() {
   itemsHtml += `
     <div class="basket-action-wrapper">
       <button class="btn-whatsapp-cart" id="send-whatsapp-cart" type="button">Send Basket to WhatsApp</button>
+      <button class="btn btn-mpesa" id="cart-checkout-mpesa" type="button" style="width:100%; background:#00a859; border-color:#00a859; color:#fff; font-weight:700;">Checkout with M-Pesa</button>
     </div>`;
 
   container.innerHTML = itemsHtml;
   totalElement.textContent = `KSh ${grandTotal.toFixed(2)}`;
 
   document.getElementById('send-whatsapp-cart').addEventListener('click', sendBasketToWhatsApp);
+  document.getElementById('cart-checkout-mpesa').addEventListener('click', checkoutCartWithMpesa);
 
   container.querySelectorAll('[data-quantity-id]').forEach(button => {
     button.addEventListener('click', () => updateQuantity(button.dataset.quantityId, Number(button.dataset.delta)));
@@ -336,6 +345,158 @@ filterBtns.forEach(button => {
   });
 });
 
+function parsePrice(value) {
+  return parseInt(String(value || '').replace(/[^0-9]/g, ''), 10) || 0;
+}
+
+function formatKsh(amount) {
+  return `KSh ${Number(amount || 0).toFixed(2)}`;
+}
+
+let currentCheckout = null;
+let mpesaPollTimer = null;
+
+function checkoutCartWithMpesa() {
+  if (cart.length === 0) {
+    alert('Your basket is empty!');
+    return;
+  }
+  const total = cart.reduce((sum, item) => sum + parsePrice(item.price) * item.quantity, 0);
+  const names = cart.map(item => `${item.name} × ${item.quantity}`).join(', ');
+  startMpesaCheckout({
+    itemName: names,
+    amount: total,
+    itemId: cart.map(item => item.id).join(','),
+    image: getItemImages(cart[0])[0] || '',
+    clearCartOnSuccess: true
+  });
+}
+
+function startMpesaCheckout(order) {
+  currentCheckout = order;
+  const modal = document.getElementById('mpesaCheckoutModal');
+  document.getElementById('mpesaOrderTitle').textContent = order.itemName;
+  document.getElementById('mpesaOrderPrice').textContent = formatKsh(order.amount);
+  const thumb = document.getElementById('mpesaOrderThumb');
+  thumb.innerHTML = order.image ? `<img src="${order.image}" alt="" />` : '';
+  document.getElementById('mpesaFormError').textContent = '';
+  document.getElementById('mpesaPayForm').reset();
+  showMpesaStep('input');
+  document.getElementById('cart-modal').classList.remove('active');
+  closeProductModal();
+  modal.hidden = false;
+  requestAnimationFrame(() => modal.classList.add('active'));
+}
+
+function closeMpesaModal() {
+  const modal = document.getElementById('mpesaCheckoutModal');
+  modal.classList.remove('active');
+  setTimeout(() => { modal.hidden = true; }, 220);
+  if (mpesaPollTimer) {
+    clearInterval(mpesaPollTimer);
+    mpesaPollTimer = null;
+  }
+}
+
+function showMpesaStep(step) {
+  document.getElementById('mpesaStepInput').style.display = step === 'input' ? 'block' : 'none';
+  document.getElementById('mpesaStepProcessing').style.display = step === 'processing' ? 'block' : 'none';
+  document.getElementById('mpesaStepSuccess').style.display = step === 'success' ? 'block' : 'none';
+}
+
+async function submitMpesaCheckout(event) {
+  event.preventDefault();
+  const errorEl = document.getElementById('mpesaFormError');
+  const submitBtn = document.getElementById('mpesaSubmitBtn');
+  errorEl.textContent = '';
+  if (!currentCheckout || !currentCheckout.amount) {
+    errorEl.textContent = 'This item needs a price before M-Pesa checkout.';
+    return;
+  }
+
+  const customerName = document.getElementById('mpesaCustomerName').value.trim();
+  const phoneNumber = document.getElementById('mpesaPhoneNumber').value.trim();
+  currentCheckout.customerName = customerName;
+  currentCheckout.phoneNumber = phoneNumber;
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Sending prompt...';
+  try {
+    const res = await fetch('/api/mpesa/stkpush', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phoneNumber,
+        amount: currentCheckout.amount,
+        itemName: currentCheckout.itemName,
+        customerName,
+        itemId: currentCheckout.itemId
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'Failed to send M-Pesa prompt.');
+    }
+    currentCheckout.checkoutRequestId = data.checkoutRequestId;
+    document.getElementById('promptPhone').textContent = phoneNumber;
+    document.getElementById('mpesaStatusText').style.color = '#25d366';
+    document.getElementById('mpesaStatusText').textContent = data.customerMessage || 'Waiting for M-Pesa confirmation...';
+    showMpesaStep('processing');
+    startPaymentPolling(data.checkoutRequestId);
+  } catch (err) {
+    errorEl.textContent = err.message || 'Could not start M-Pesa checkout.';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Send M-Pesa Prompt';
+  }
+}
+
+function startPaymentPolling(checkoutRequestId) {
+  if (mpesaPollTimer) clearInterval(mpesaPollTimer);
+  mpesaPollTimer = setInterval(() => pollPaymentStatus(checkoutRequestId), 3000);
+  pollPaymentStatus(checkoutRequestId);
+}
+
+async function pollPaymentStatus(checkoutRequestId) {
+  try {
+    const res = await fetch(`/api/mpesa/status/${encodeURIComponent(checkoutRequestId)}`);
+    const data = await res.json();
+    if (data.status === 'COMPLETED') {
+      clearInterval(mpesaPollTimer);
+      mpesaPollTimer = null;
+      showPaymentSuccess();
+      return;
+    }
+    if (data.status === 'FAILED') {
+      clearInterval(mpesaPollTimer);
+      mpesaPollTimer = null;
+      document.getElementById('mpesaStatusText').textContent = data.message || 'Payment was cancelled or failed.';
+      document.getElementById('mpesaStatusText').style.color = '#ff6b6b';
+    }
+  } catch {
+    document.getElementById('mpesaStatusText').textContent = 'Still waiting for M-Pesa confirmation...';
+  }
+}
+
+function showPaymentSuccess() {
+  showMpesaStep('success');
+  document.getElementById('mpesaSuccessMessage').textContent = 'Payment confirmed. Thank you for your order.';
+  if (currentCheckout?.clearCartOnSuccess) {
+    cart = [];
+    saveCart();
+    updateCartCount();
+  }
+}
+
+function setupMpesaUI() {
+  document.getElementById('mpesaPayForm').addEventListener('submit', submitMpesaCheckout);
+  document.getElementById('closeMpesaModal').addEventListener('click', closeMpesaModal);
+  document.getElementById('mpesaCheckoutModal').addEventListener('click', event => {
+    if (event.target.id === 'mpesaCheckoutModal') closeMpesaModal();
+  });
+}
+
 setupCartUI();
+setupMpesaUI();
 updateCartCount();
 loadItems();

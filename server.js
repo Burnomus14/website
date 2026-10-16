@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || '';
 let serviceAccount;
 
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -35,7 +36,8 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 
 if (serviceAccount && getApps().length === 0) {
   initializeApp({
-    credential: cert(serviceAccount)
+    credential: cert(serviceAccount),
+    projectId: FIREBASE_PROJECT_ID || serviceAccount.project_id
   });
   console.log('Firebase initialized successfully!');
 } else if (!serviceAccount) {
@@ -44,7 +46,6 @@ if (serviceAccount && getApps().length === 0) {
 
 const db = getApps().length ? getFirestore() : null;
 const productsCollection = db ? db.collection('products') : null;
-const receiptsCollection = db ? db.collection('receipts') : null;
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
 const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
@@ -389,21 +390,35 @@ app.get('/api/items', async (req, res) => {
   }
 });
 
-app.get('/api/config', (req, res) => {
-  res.json({
-    sellerPhone: SELLER_PHONE_NUMBER,
-    mpesaEnvironment: MPESA_ENVIRONMENT,
-    mpesaShortcode: MPESA_SHORTCODE
-  });
-});
-
 // ---- Safaricom Daraja / M-Pesa Configuration ----
 const MPESA_ENVIRONMENT = (process.env.MPESA_ENVIRONMENT || 'sandbox').toLowerCase();
 const MPESA_CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY || '';
 const MPESA_CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET || '';
 const MPESA_PASSKEY = process.env.MPESA_PASSKEY || '';
 const MPESA_SHORTCODE = process.env.MPESA_SHORTCODE || '174379';
-const MPESA_CALLBACK_URL = process.env.MPESA_CALLBACK_URL || 'https://shoe-collection-site.onrender.com/api/mpesa/callback';
+const MPESA_TRANSACTION_TYPE = process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline';
+const MPESA_CALLBACK_URL = process.env.MPESA_CALLBACK_URL || '';
+const mpesaTransactionsCollection = db ? db.collection('mpesa_transactions') : null;
+
+function formatMpesaPhone(phone) {
+  let cleaned = String(phone || '').replace(/[^0-9]/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '254' + cleaned.slice(1);
+  } else if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
+    cleaned = '254' + cleaned;
+  }
+  return cleaned;
+}
+
+const ADMIN_WHATSAPP_PHONE = formatMpesaPhone(SELLER_PHONE_NUMBER) || '254728074301';
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    sellerPhone: ADMIN_WHATSAPP_PHONE,
+    mpesaEnvironment: MPESA_ENVIRONMENT,
+    mpesaShortcode: MPESA_SHORTCODE
+  });
+});
 
 const MPESA_BASE_URL = (MPESA_ENVIRONMENT === 'production' || MPESA_ENVIRONMENT === 'live')
   ? 'https://api.safaricom.co.ke'
@@ -431,56 +446,38 @@ async function getMpesaToken() {
   return cachedMpesaToken;
 }
 
-function formatMpesaPhone(phone) {
-  let cleaned = String(phone || '').replace(/[^0-9]/g, '');
-  if (cleaned.startsWith('0')) {
-    cleaned = '254' + cleaned.slice(1);
-  } else if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
-    cleaned = '254' + cleaned;
+async function storePendingTransaction(checkoutRequestId, data) {
+  activeMpesaTransactions.set(checkoutRequestId, data);
+  if (!mpesaTransactionsCollection) return;
+  try {
+    await mpesaTransactionsCollection.doc(checkoutRequestId).set(data, { merge: true });
+  } catch (err) {
+    console.error('Error saving pending M-Pesa transaction:', err.message);
   }
-  return cleaned;
 }
 
-async function saveReceiptToFirestore(receiptData) {
-  const receiptId = receiptData.receiptNumber || `REC-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-  const receiptRecord = {
-    receiptId,
-    receiptNumber: receiptId,
-    ...receiptData,
-    sellerPhone: SELLER_PHONE_NUMBER,
-    status: receiptData.status || 'COMPLETED',
-    createdAt: new Date().toISOString()
-  };
-
-  // 1. Direct save to Firestore receipts collection
-  if (receiptsCollection) {
-    try {
-      await receiptsCollection.doc(receiptId).set(receiptRecord);
-      console.log('✅ Receipt saved directly to Firestore under receipts:', receiptId);
-    } catch (err) {
-      console.error('Error saving receipt to Firestore:', err.message);
-    }
-  }
-
-  // 2. Save to local data/receipts.json backup
+async function loadPendingTransaction(checkoutRequestId) {
+  const cached = activeMpesaTransactions.get(checkoutRequestId);
+  if (cached) return cached;
+  if (!mpesaTransactionsCollection) return {};
   try {
-    const receiptsFile = path.join(DATA_DIR, 'receipts.json');
-    let localReceipts = [];
-    if (fs.existsSync(receiptsFile)) {
-      try { localReceipts = JSON.parse(fs.readFileSync(receiptsFile, 'utf8')); } catch {}
-    }
-    localReceipts.unshift(receiptRecord);
-    fs.writeFileSync(receiptsFile, JSON.stringify(localReceipts, null, 2));
+    const snap = await mpesaTransactionsCollection.doc(checkoutRequestId).get();
+    return snap.exists ? snap.data() : {};
   } catch (err) {
-    console.error('Error saving local receipt backup:', err.message);
+    console.error('Error loading M-Pesa transaction:', err.message);
+    return {};
   }
-
-  return receiptRecord;
 }
 
 // ---- M-Pesa Endpoints ----
 app.post('/api/mpesa/stkpush', async (req, res) => {
   const { phoneNumber, amount, itemName, customerName, itemId } = req.body;
+  if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET || !MPESA_PASSKEY || !MPESA_CALLBACK_URL) {
+    return res.status(503).json({
+      success: false,
+      message: 'M-Pesa checkout is not configured. Set the Daraja credentials and public callback URL.'
+    });
+  }
   if (!phoneNumber || !amount) {
     return res.status(400).json({ success: false, message: 'Phone number and amount are required.' });
   }
@@ -503,7 +500,7 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
       BusinessShortCode: shortcodeToUse,
       Password: password,
       Timestamp: timestamp,
-      TransactionType: 'CustomerPayBillOnline',
+      TransactionType: MPESA_TRANSACTION_TYPE,
       Amount: numericAmount,
       PartyA: phone,
       PartyB: shortcodeToUse,
@@ -531,6 +528,7 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
       payload.BusinessShortCode = shortcodeToUse;
       payload.Password = password;
       payload.PartyB = shortcodeToUse;
+      payload.TransactionType = 'CustomerPayBillOnline';
 
       stkRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
         method: 'POST',
@@ -544,7 +542,7 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
     }
 
     if (stkData.ResponseCode === '0' || stkData.CheckoutRequestID) {
-      activeMpesaTransactions.set(stkData.CheckoutRequestID, {
+      await storePendingTransaction(stkData.CheckoutRequestID, {
         checkoutRequestId: stkData.CheckoutRequestID,
         merchantRequestId: stkData.MerchantRequestID,
         phoneNumber: phone,
@@ -552,6 +550,7 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
         itemName: itemName || 'Collection Piece',
         customerName: customerName || 'Valued Customer',
         itemId: itemId || null,
+        businessShortCode: shortcodeToUse,
         status: 'PENDING',
         createdAt: Date.now()
       });
@@ -581,35 +580,19 @@ app.post('/api/mpesa/callback', async (req, res) => {
       return res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
     }
 
-    const { CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callbackData;
+    const { CheckoutRequestID, ResultCode, ResultDesc } = callbackData;
     console.log('M-Pesa Callback:', CheckoutRequestID, ResultCode, ResultDesc);
 
-    const transaction = activeMpesaTransactions.get(CheckoutRequestID) || {};
+    const transaction = await loadPendingTransaction(CheckoutRequestID);
 
-    if (ResultCode === 0 && CallbackMetadata?.Item) {
-      const metadata = {};
-      CallbackMetadata.Item.forEach(item => {
-        metadata[item.Name] = item.Value;
-      });
-
-      const receipt = await saveReceiptToFirestore({
-        checkoutRequestId: CheckoutRequestID,
-        mpesaCode: metadata.MpesaReceiptNumber || `MP-${Date.now().toString(36).toUpperCase()}`,
-        amount: metadata.Amount || transaction.amount || 0,
-        customerPhone: metadata.PhoneNumber || transaction.phoneNumber,
-        customerName: transaction.customerName || 'Customer',
-        itemName: transaction.itemName || 'Store Item',
-        itemId: transaction.itemId || null,
-        status: 'COMPLETED'
-      });
-
-      activeMpesaTransactions.set(CheckoutRequestID, {
+    if (ResultCode === 0) {
+      await storePendingTransaction(CheckoutRequestID, {
         ...transaction,
         status: 'COMPLETED',
-        receipt
+        completedAt: Date.now()
       });
     } else {
-      activeMpesaTransactions.set(CheckoutRequestID, {
+      await storePendingTransaction(CheckoutRequestID, {
         ...transaction,
         status: 'FAILED',
         error: ResultDesc
@@ -625,73 +608,63 @@ app.post('/api/mpesa/callback', async (req, res) => {
 
 app.get('/api/mpesa/status/:checkoutRequestId', async (req, res) => {
   const { checkoutRequestId } = req.params;
-  const transaction = activeMpesaTransactions.get(checkoutRequestId);
+  const transaction = await loadPendingTransaction(checkoutRequestId);
 
-  if (!transaction) {
+  if (!transaction || !transaction.checkoutRequestId) {
     return res.status(404).json({ success: false, message: 'Transaction not found.' });
   }
 
-  if (transaction.status === 'COMPLETED' && transaction.receipt) {
-    return res.json({ success: true, status: 'COMPLETED', receipt: transaction.receipt });
+  if (transaction.status === 'COMPLETED') {
+    return res.json({ success: true, status: 'COMPLETED' });
   }
 
   if (transaction.status === 'FAILED') {
     return res.json({ success: false, status: 'FAILED', message: transaction.error || 'Payment cancelled or failed.' });
   }
 
-  return res.json({ success: true, status: 'PENDING' });
-});
-
-app.post('/api/mpesa/confirm-manual', async (req, res) => {
-  const { checkoutRequestId, customerName, phoneNumber, amount, itemName, itemId } = req.body;
-  const transaction = activeMpesaTransactions.get(checkoutRequestId) || {};
-
-  const receipt = await saveReceiptToFirestore({
-    checkoutRequestId: checkoutRequestId || `SIM-${Date.now()}`,
-    mpesaCode: `NLJ${Math.floor(100000 + Math.random() * 900000)}`,
-    amount: amount || transaction.amount || 0,
-    customerPhone: phoneNumber || transaction.phoneNumber || '254728074301',
-    customerName: customerName || transaction.customerName || 'Valued Customer',
-    itemName: itemName || transaction.itemName || 'Collection Piece',
-    itemId: itemId || transaction.itemId || null,
-    status: 'COMPLETED'
-  });
-
-  if (checkoutRequestId) {
-    activeMpesaTransactions.set(checkoutRequestId, {
-      ...transaction,
-      status: 'COMPLETED',
-      receipt
-    });
-  }
-
-  res.json({ success: true, status: 'COMPLETED', receipt });
-});
-
-app.get('/api/admin/receipts', requireAuth, async (req, res) => {
   try {
-    const receipts = [];
-    if (receiptsCollection) {
-      const snapshot = await receiptsCollection.orderBy('createdAt', 'desc').get();
-      snapshot.forEach(doc => {
-        receipts.push({ id: doc.id, ...doc.data() });
+    const token = await getMpesaToken();
+    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+    const shortcode = transaction.businessShortCode || MPESA_SHORTCODE;
+    const password = Buffer.from(`${shortcode}${MPESA_PASSKEY}${timestamp}`).toString('base64');
+    const queryRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpushquery/v1/query`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        BusinessShortCode: shortcode,
+        Password: password,
+        Timestamp: timestamp,
+        CheckoutRequestID: checkoutRequestId
+      })
+    });
+    const queryData = await queryRes.json();
+    if (String(queryData.ResultCode) === '0') {
+      await storePendingTransaction(checkoutRequestId, {
+        ...transaction,
+        status: 'COMPLETED',
+        completedAt: Date.now()
       });
+      return res.json({ success: true, status: 'COMPLETED' });
     }
-
-    if (receipts.length === 0) {
-      const receiptsFile = path.join(DATA_DIR, 'receipts.json');
-      if (fs.existsSync(receiptsFile)) {
-        try {
-          const raw = JSON.parse(fs.readFileSync(receiptsFile, 'utf8'));
-          receipts.push(...raw);
-        } catch {}
+    if (queryData.ResultCode && String(queryData.ResultCode) !== '1032' && String(queryData.ResultCode) !== '4999') {
+      const failedCodes = ['1032', '1037', '1', '2001', '1001'];
+      if (failedCodes.includes(String(queryData.ResultCode))) {
+        await storePendingTransaction(checkoutRequestId, {
+          ...transaction,
+          status: 'FAILED',
+          error: queryData.ResultDesc || 'Payment cancelled or failed.'
+        });
+        return res.json({ success: false, status: 'FAILED', message: queryData.ResultDesc || 'Payment cancelled or failed.' });
       }
     }
-
-    res.json({ success: true, receipts });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+  } catch (err) {
+    console.error('M-Pesa status query error:', err.message);
   }
+
+  return res.json({ success: true, status: 'PENDING' });
 });
 
 // ---- Admin routes (all require a valid session token) ----

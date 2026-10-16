@@ -29,6 +29,8 @@ services:
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: collection-6d7f6
       - key: MPESA_ENVIRONMENT
         sync: false
       - key: MPESA_CONSUMER_KEY

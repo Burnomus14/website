@@ -24,6 +24,22 @@ An AMOLED black/white catalog site for your shoe and clothes collection, with a 
 
 The local `.env` file contains the server port and seller WhatsApp number. It is ignored by Git and should never be committed.
 
+## M-Pesa Daraja checkout
+
+The storefront uses Daraja STK Push. Add these values to `.env` for local testing or configure them as secrets in your hosting provider:
+
+```env
+MPESA_ENVIRONMENT=sandbox
+MPESA_CONSUMER_KEY=your_daraja_consumer_key
+MPESA_CONSUMER_SECRET=your_daraja_consumer_secret
+MPESA_PASSKEY=your_stk_push_passkey
+MPESA_SHORTCODE=174379
+MPESA_TRANSACTION_TYPE=CustomerPayBillOnline
+MPESA_CALLBACK_URL=https://your-public-domain.example/api/mpesa/callback
+```
+
+Create an app in the Safaricom Daraja portal to obtain the consumer key and secret. Use the matching sandbox or production shortcode and passkey. The callback URL must be publicly reachable over HTTPS; local `localhost` URLs cannot receive Daraja callbacks. Set `MPESA_ENVIRONMENT=production` only after the production app and shortcode are approved.
+
 ## How it works
 
 - **Data** lives in `data/items.json` — a plain JSON file, human-readable if you want to peek or hand-edit it.
@@ -60,7 +76,7 @@ This is a small Node app, so it deploys easily to something like Render, Railway
 
 The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. When the three Cloudinary variables are set, new admin uploads are stored in the `shoe_collection` Cloudinary folder and use permanent Cloudinary URLs. Without them, the app falls back to the persistent disk and `/uploads/<filename>` URLs. Existing local images must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; Cloudinary is preferred for multi-instance deployments.
 
-When `FIREBASE_SERVICE_ACCOUNT` is configured, catalog records are stored in the Firestore `products` collection while the existing authenticated admin API and storefront remain unchanged. For local development, you can instead place the downloaded service-account file at `firebase-key.json`; it is ignored by Git. The Firebase browser configuration is not needed because the app accesses Firestore only from the server.
+When `FIREBASE_SERVICE_ACCOUNT` is configured, catalog records are stored in the Firestore `products` collection and M-Pesa transaction status is stored in `mpesa_transactions`. For local development, you can instead place the downloaded service-account file at `firebase-key.json`; it is ignored by Git. The Firebase browser configuration is not needed because the app accesses Firestore only from the server.
 
 ## Customizing the look
 
