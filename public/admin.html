@@ -18,10 +18,42 @@
 
 <!-- Admin dashboard (shown after session validation) -->
 <div class="admin-wrap" id="adminWrap" style="display:none">
-  <div class="admin-header">
+  <div class="admin-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; flex-wrap:wrap; gap:12px;">
     <h1>Manage the collection</h1>
-    <button class="btn ghost" id="logoutBtn">Sign out</button>
+    <div style="display:flex; gap:10px;">
+      <button class="btn ghost" type="button" id="toggleAdminBtn">+ Add Admin</button>
+      <button class="btn ghost" type="button" id="logoutBtn">Sign out</button>
+    </div>
   </div>
+
+  <!-- Add Admin to Firebase Form -->
+  <section class="admin-form" id="adminUserSection" style="display:none; border-color:#333; margin-bottom:32px; background:var(--card);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0; color:var(--ink);">Add Admin directly to Firebase</h2>
+      <button class="btn ghost" type="button" id="closeAdminSectionBtn" style="padding:4px 10px; font-size:12px;">✕ Close</button>
+    </div>
+    <form id="addAdminForm">
+      <div class="form-grid">
+        <div class="field">
+          <label for="newAdminUsername">Username</label>
+          <input type="text" id="newAdminUsername" required placeholder="e.g. store_manager" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="newAdminEmail">Email</label>
+          <input type="email" id="newAdminEmail" required placeholder="e.g. admin@company.com" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </div>
+        <div class="field span-2">
+          <label for="newAdminPassword">Password (minimum 6 characters)</label>
+          <input type="password" id="newAdminPassword" required minlength="6" placeholder="Enter secure password" />
+        </div>
+      </div>
+      <div class="row-actions" style="margin-top:18px;">
+        <button class="btn" type="submit" id="saveAdminBtn">Save Admin to Firebase</button>
+        <button class="btn ghost" type="button" id="cancelAdminBtn">Cancel</button>
+      </div>
+      <p class="error-msg" id="adminFormError"></p>
+    </form>
+  </section>
 
   <section class="admin-form">
     <h2 id="formTitle">Add a new item</h2>

@@ -193,6 +193,72 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ---- Add Admin Handlers ----
+const toggleAdminBtn = document.getElementById('toggleAdminBtn');
+const adminUserSection = document.getElementById('adminUserSection');
+const closeAdminSectionBtn = document.getElementById('closeAdminSectionBtn');
+const cancelAdminBtn = document.getElementById('cancelAdminBtn');
+const addAdminForm = document.getElementById('addAdminForm');
+const saveAdminBtn = document.getElementById('saveAdminBtn');
+const adminFormError = document.getElementById('adminFormError');
+
+function toggleAdminSection(show) {
+  const shouldShow = typeof show === 'boolean' ? show : (adminUserSection.style.display === 'none');
+  adminUserSection.style.display = shouldShow ? 'block' : 'none';
+  if (shouldShow) {
+    adminFormError.textContent = '';
+    document.getElementById('newAdminUsername').focus();
+  }
+}
+
+if (toggleAdminBtn) {
+  toggleAdminBtn.addEventListener('click', () => toggleAdminSection());
+}
+if (closeAdminSectionBtn) {
+  closeAdminSectionBtn.addEventListener('click', () => toggleAdminSection(false));
+}
+if (cancelAdminBtn) {
+  cancelAdminBtn.addEventListener('click', () => {
+    addAdminForm.reset();
+    toggleAdminSection(false);
+  });
+}
+
+if (addAdminForm) {
+  addAdminForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    adminFormError.textContent = '';
+    saveAdminBtn.disabled = true;
+    saveAdminBtn.textContent = 'Saving to Firebase...';
+
+    const username = document.getElementById('newAdminUsername').value.trim();
+    const email = document.getElementById('newAdminEmail').value.trim();
+    const password = document.getElementById('newAdminPassword').value;
+
+    try {
+      const res = await authedFetch('/api/admin/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to create admin');
+      }
+
+      showToast(data.message || 'Admin added to Firebase!');
+      addAdminForm.reset();
+      toggleAdminSection(false);
+    } catch (err) {
+      adminFormError.textContent = err.message || 'Error creating admin';
+    } finally {
+      saveAdminBtn.disabled = false;
+      saveAdminBtn.textContent = 'Save Admin to Firebase';
+    }
+  });
+}
+
 // ---- Init ----
 async function initializeDashboard() {
   if (!token) {

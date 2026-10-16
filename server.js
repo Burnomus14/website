@@ -395,23 +395,102 @@ app.get('/api/config', (req, res) => {
 // ---- Admin routes (all require a valid session token) ----
 app.post('/api/admin/create', requireAuth, async (req, res) => {
   const { email, password, username } = req.body;
+  if (!username || !email || !password) {
+    return res.status(400).json({ success: false, message: 'Username, email, and password are required.' });
+  }
+
+  const cleanUsername = String(username).trim();
+  const cleanEmail = String(email).trim().toLowerCase();
+  const rawPassword = String(password);
+
+  if (rawPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+  }
+
   try {
-    const userRecord = await getAuth().createUser({
-      email,
-      password,
-      displayName: username
+    let uid = null;
+
+    // 1. Try Firebase Auth if available
+    try {
+      const userRecord = await getAuth().createUser({
+        email: cleanEmail,
+        password: rawPassword,
+        displayName: cleanUsername
+      });
+      uid = userRecord.uid;
+    } catch (authErr) {
+      console.warn('Firebase Auth user creation note:', authErr.message);
+    }
+
+    // 2. Save directly to Firestore 'admins' collection
+    if (db) {
+      const docRef = uid ? db.collection('admins').doc(uid) : db.collection('admins').doc();
+      await docRef.set({
+        username: cleanUsername,
+        email: cleanEmail,
+        password: rawPassword,
+        role: 'admin',
+        createdAt: new Date()
+      });
+
+      if (uid) {
+        await db.collection('admin_profiles').doc(uid).set({
+          username: cleanUsername,
+          email: cleanEmail,
+          role: 'admin',
+          createdAt: new Date()
+        }).catch(() => {});
+      }
+    }
+
+    // 3. Register in local memory fallback
+    localAdmins.set(cleanUsername.toLowerCase(), {
+      username: cleanUsername,
+      password: rawPassword,
+      email: cleanEmail
     });
 
-    await db.collection('admin_profiles').doc(userRecord.uid).set({
-      username,
-      email,
-      role: 'admin',
-      createdAt: new Date()
+    res.json({
+      success: true,
+      message: db ? 'Admin directly added to Firebase!' : 'Admin added locally!',
+      admin: { username: cleanUsername, email: cleanEmail }
     });
-
-    res.json({ success: true, uid: userRecord.uid });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error creating admin:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to create admin' });
+  }
+});
+
+app.get('/api/admin/list', requireAuth, async (req, res) => {
+  try {
+    const list = [];
+    if (db) {
+      const snapshot = await db.collection('admins').get();
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        list.push({
+          id: doc.id,
+          username: d.username,
+          email: d.email,
+          createdAt: d.createdAt ? (d.createdAt.toDate ? d.createdAt.toDate() : d.createdAt) : null
+        });
+      });
+    }
+
+    if (list.length === 0) {
+      for (const [key, admin] of localAdmins.entries()) {
+        list.push({
+          id: key,
+          username: admin.username,
+          email: admin.email,
+          createdAt: new Date()
+        });
+      }
+    }
+
+    res.json({ success: true, admins: list });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
