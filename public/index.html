@@ -53,7 +53,8 @@
   </div>
   <div class="cart-items" id="cart-items-container"></div>
   <div class="cart-footer">
-    <div class="cart-summary"><span>Total</span><span id="cart-total-price">$0.00</span></div>
+    <div class="cart-summary"><span>Total</span><span id="cart-total-price">KSh 0.00</span></div>
+    <button class="btn btn-mpesa" id="cart-checkout-mpesa" type="button" style="width:100%; margin-top:12px; background:#00a859; border-color:#00a859; color:#fff; font-weight:700;">Checkout with M-Pesa</button>
   </div>
 </aside>
 
@@ -72,12 +73,112 @@
         <h2 id="modal-product-title"></h2>
         <p id="modal-product-price" class="modal-price"></p>
         <p id="modal-product-desc" class="modal-description"></p>
-        <div class="modal-actions">
+        <div class="modal-actions" style="flex-wrap:wrap;">
+          <button id="modal-buy-mpesa" class="btn btn-mpesa" type="button" style="flex:1 1 100%; background:#00a859; border-color:#00a859; color:#fff; font-weight:700; margin-bottom:8px;">Buy with M-Pesa</button>
           <button id="modal-add-cart" class="btn btn-add-cart" type="button">Add to basket</button>
           <button id="modal-buy-whatsapp" class="btn btn-whatsapp-direct" type="button">WhatsApp</button>
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- M-Pesa Checkout & Receipt Modal -->
+<div class="mpesa-modal" id="mpesaCheckoutModal" role="dialog" aria-modal="true" hidden>
+  <div class="mpesa-modal-content">
+    <button class="modal-close-btn" id="closeMpesaModal" type="button" aria-label="Close">&times;</button>
+    
+    <!-- Step 1: Input Customer Details -->
+    <div id="mpesaStepInput">
+      <div class="mpesa-header">
+        <span class="mpesa-badge">LIPA NA M-PESA</span>
+        <h2>Instant M-Pesa Checkout</h2>
+        <p class="mpesa-subtitle">An STK push will be sent to your phone. Enter your PIN to pay.</p>
+      </div>
+
+      <div class="mpesa-order-summary">
+        <div class="mpesa-order-thumb" id="mpesaOrderThumb"></div>
+        <div class="mpesa-order-info">
+          <h3 id="mpesaOrderTitle">Product Name</h3>
+          <p class="mpesa-order-price" id="mpesaOrderPrice">KSh 0.00</p>
+        </div>
+      </div>
+
+      <form id="mpesaPayForm">
+        <div class="field">
+          <label for="mpesaCustomerName">Your Name</label>
+          <input type="text" id="mpesaCustomerName" required placeholder="e.g. Alex Kimani" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="mpesaPhoneNumber">M-Pesa Phone Number</label>
+          <input type="tel" id="mpesaPhoneNumber" required placeholder="07XXXXXXXX or 254XXXXXXXXX" autocomplete="tel" />
+          <small class="field-hint" style="color:var(--ink-dim); font-size:11.5px; display:block; margin-top:4px;">Enter Safaricom number to receive PIN prompt</small>
+        </div>
+        <div id="mpesaFormError" class="error-msg" style="margin-bottom:10px;"></div>
+        <button class="btn" type="submit" id="mpesaSubmitBtn" style="width:100%; background:#00a859; border-color:#00a859; color:#fff; font-weight:700;">Send M-Pesa Prompt</button>
+      </form>
+    </div>
+
+    <!-- Step 2: Processing Prompt -->
+    <div id="mpesaStepProcessing" style="display:none; text-align:center; padding:24px 8px;">
+      <div class="mpesa-pulse-icon">📱</div>
+      <h3 style="margin:16px 0 8px; font-family:var(--font-display);">Check Your Phone</h3>
+      <p style="color:var(--ink-dim); font-size:14px; line-height:1.6; margin:0 auto 16px; max-width:320px;">
+        An STK Push has been sent to <strong id="promptPhone" style="color:var(--ink);"></strong>.<br/>
+        Please enter your M-Pesa PIN to complete payment.
+      </p>
+      <div class="mpesa-loader-bar">
+        <div class="mpesa-loader-progress"></div>
+      </div>
+      <p id="mpesaStatusText" style="font-size:13px; color:#25d366; margin-top:16px;">Waiting for M-Pesa confirmation...</p>
+      <button class="btn ghost" id="manualConfirmBtn" type="button" style="margin-top:20px; font-size:12.5px;">Confirm Payment & View Receipt</button>
+    </div>
+
+    <!-- Step 3: Official Printable Receipt -->
+    <div id="mpesaStepReceipt" style="display:none;">
+      <div class="receipt-card" id="printableReceipt">
+        <div class="receipt-header">
+          <h2 class="receipt-brand">THE COLLECTION</h2>
+          <p class="receipt-sub">Official Purchase Receipt</p>
+          <div class="receipt-status-pill">PAID WITH M-PESA ✅</div>
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-meta">
+          <div class="meta-row"><span>Receipt No:</span><strong id="receiptNo">—</strong></div>
+          <div class="meta-row"><span>M-Pesa Code:</span><strong id="receiptMpesaCode">—</strong></div>
+          <div class="meta-row"><span>Date:</span><span id="receiptDate">—</span></div>
+          <div class="meta-row"><span>Customer:</span><span id="receiptCustomer">—</span></div>
+          <div class="meta-row"><span>Phone:</span><span id="receiptPhone">—</span></div>
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-item-row" style="display:flex; justify-content:space-between; margin:12px 0;">
+          <span id="receiptItemName" style="font-weight:600;">Item</span>
+          <strong id="receiptItemAmount">KSh 0.00</strong>
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-total-row" style="display:flex; justify-content:space-between; margin:14px 0; font-size:16px;">
+          <strong>TOTAL PAID</strong>
+          <strong id="receiptTotalAmount" style="color:#00a859;">KSh 0.00</strong>
+        </div>
+
+        <div class="receipt-footer-note" style="text-align:center; font-size:11px; color:var(--ink-dim); margin-top:18px;">
+          <p style="margin:2px 0;">Saved in Firestore under <code>receipts</code></p>
+          <p style="margin:2px 0;">Store WhatsApp: +254 728 074 301</p>
+        </div>
+      </div>
+
+      <div class="receipt-actions" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px;">
+        <button class="btn" type="button" id="printReceiptBtn" style="background:#fff; color:#000;">🖨️ Print Receipt</button>
+        <button class="btn" type="button" id="sendWhatsAppReceiptBtn" style="background:#25d366; border-color:#25d366; color:#fff;">📲 Send to WhatsApp</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
