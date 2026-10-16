@@ -471,7 +471,7 @@ async function loadPendingTransaction(checkoutRequestId) {
 
 // ---- M-Pesa Endpoints ----
 app.post('/api/mpesa/stkpush', async (req, res) => {
-  const { phoneNumber, amount, itemName, customerName, itemId } = req.body;
+  const { phoneNumber, amount, itemName, customerName, itemId, itemLines: rawItemLines } = req.body;
   if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET || !MPESA_PASSKEY || !MPESA_CALLBACK_URL) {
     return res.status(503).json({
       success: false,
@@ -488,6 +488,14 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
   }
 
   const numericAmount = Math.max(1, Math.round(Number(String(amount).replace(/[^0-9.]/g, '')) || 1));
+  const itemLines = Array.isArray(rawItemLines) ? rawItemLines
+    .map(line => ({
+      itemId: line?.itemId ? String(line.itemId).slice(0, 128) : null,
+      itemName: String(line?.itemName || '').trim().slice(0, 120),
+      quantity: Math.min(999, Math.max(1, Math.floor(Number(line?.quantity) || 1)))
+    }))
+    .filter(line => line.itemName)
+    .slice(0, 50) : [];
 
   try {
     const token = await getMpesaToken();
@@ -550,6 +558,8 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
         itemName: itemName || 'Collection Piece',
         customerName: customerName || 'Valued Customer',
         itemId: itemId || null,
+        itemLines,
+        quantity: itemLines.reduce((total, line) => total + line.quantity, 0) || null,
         businessShortCode: shortcodeToUse,
         status: 'PENDING',
         createdAt: Date.now()
@@ -665,6 +675,33 @@ app.get('/api/mpesa/status/:checkoutRequestId', async (req, res) => {
   }
 
   return res.json({ success: true, status: 'PENDING' });
+});
+
+app.get('/api/admin/transactions', requireAuth, async (req, res) => {
+  if (!mpesaTransactionsCollection) {
+    return res.status(503).json({ success: false, message: 'Transaction history is unavailable because Firestore is not configured.' });
+  }
+
+  try {
+    const snapshot = await mpesaTransactionsCollection.get();
+    const transactionTime = value => {
+      if (typeof value === 'number') return value;
+      if (typeof value?.toMillis === 'function') return value.toMillis();
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const transactions = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(transaction => transaction.status === 'COMPLETED')
+      .sort((first, second) =>
+        transactionTime(second.completedAt || second.createdAt) - transactionTime(first.completedAt || first.createdAt)
+      );
+
+    res.json({ success: true, transactions });
+  } catch (error) {
+    console.error('Error loading M-Pesa transactions:', error.message);
+    res.status(503).json({ success: false, message: 'Transaction history is temporarily unavailable.' });
+  }
 });
 
 // ---- Admin routes (all require a valid session token) ----

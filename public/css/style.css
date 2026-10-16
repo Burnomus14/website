@@ -398,6 +398,9 @@ display: inline-block;
   margin: 0;
 }
 
+.admin-eyebrow { margin: 0 0 8px; color: var(--ink-dim); font-size: 11px; }
+.transaction-message { color: var(--ink-dim); font-size: 13px; }
+
 .btn {
   font-family: var(--font-body);
   font-size: 13.5px;
@@ -529,6 +532,12 @@ display: inline-block;
   font-size: 13.5px;
   vertical-align: middle;
 }
+
+.transactions-table-wrap { overflow-x: auto; }
+.transactions-table { min-width: 760px; }
+.transaction-items { margin: 0; padding-left: 18px; }
+.transaction-items li + li { margin-top: 5px; }
+.transaction-legacy-note { display: block; margin-top: 4px; color: var(--ink-dim); font-size: 11px; }
 
 .admin-thumb {
   width: 46px;

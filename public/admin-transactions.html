@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Transactions — The Collection</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a href="/" class="brand">THE<span>&nbsp;COLLECTION</span></a>
+  <nav>
+    <a href="/">Archive</a>
+    <a href="/admin.html">Admin</a>
+    <a href="/admin-transactions.html" class="active">Transactions</a>
+  </nav>
+</header>
+
+<main class="admin-wrap">
+  <header class="admin-header">
+    <div>
+      <p class="admin-eyebrow">THE COLLECTION / PAYMENTS</p>
+      <h1>Transactions</h1>
+    </div>
+    <div class="row-actions">
+      <button class="btn ghost" id="refreshTransactions" type="button">Refresh</button>
+      <button class="btn ghost" id="signOut" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <p id="transactionMessage" class="transaction-message" role="status" aria-live="polite">Loading transactions...</p>
+  <div id="transactionsTableWrap" class="transactions-table-wrap" hidden>
+    <table class="admin-table transactions-table">
+      <thead>
+        <tr>
+          <th>Buyer</th>
+          <th>Phone</th>
+          <th>Amount</th>
+          <th>Items and quantities</th>
+          <th>Paid</th>
+        </tr>
+      </thead>
+      <tbody id="transactionsTableBody"></tbody>
+    </table>
+  </div>
+</main>
+
+<footer class="footer">
+  <p class="footer-copyright">Copyright 2026</p>
+  <div class="footer-signature">schngor</div>
+  <p>Managed from the <a href="/admin.html">admin panel</a>.</p>
+</footer>
+
+<script src="/js/admin-transactions.js"></script>
+</body>
+</html>

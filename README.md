@@ -78,6 +78,8 @@ The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Per
 
 When `FIREBASE_SERVICE_ACCOUNT` is configured, catalog records are stored in the Firestore `products` collection and M-Pesa transaction status is stored in `mpesa_transactions`. For local development, you can instead place the downloaded service-account file at `firebase-key.json`; it is ignored by Git. The Firebase browser configuration is not needed because the app accesses Firestore only from the server.
 
+Signed-in admins can open **Transactions** from the admin navigation to view completed M-Pesa payments, including buyer details and item quantities. This history requires working Firestore credentials; pending and failed payments are not listed.
+
 ## Customizing the look
 
 All colors, type, and spacing live in `public/css/style.css` under the `:root` block at the top — change the hex values there to retheme the whole site at once.

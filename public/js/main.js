@@ -134,6 +134,7 @@ function openProductModal(productId) {
     itemName: product.name,
     amount: parsePrice(product.price),
     itemId: product.id,
+    itemLines: [{ itemId: String(product.id), itemName: product.name, quantity: 1 }],
     image: getItemImages(product)[0] || ''
   });
   document.getElementById('modal-buy-whatsapp').onclick = () => orderSingleWhatsApp(product.id);
@@ -367,6 +368,11 @@ function checkoutCartWithMpesa() {
     itemName: names,
     amount: total,
     itemId: cart.map(item => item.id).join(','),
+    itemLines: cart.map(item => ({
+      itemId: String(item.id),
+      itemName: item.name,
+      quantity: item.quantity
+    })),
     image: getItemImages(cart[0])[0] || '',
     clearCartOnSuccess: true
   });
@@ -430,7 +436,8 @@ async function submitMpesaCheckout(event) {
         amount: currentCheckout.amount,
         itemName: currentCheckout.itemName,
         customerName,
-        itemId: currentCheckout.itemId
+        itemId: currentCheckout.itemId,
+        itemLines: currentCheckout.itemLines || []
       })
     });
     const data = await res.json();
