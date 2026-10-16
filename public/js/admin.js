@@ -50,9 +50,16 @@ async function authedFetch(url, options = {}) {
 
 // ---- Load + render items ----
 async function loadItems() {
-  const res = await fetch('/api/items');
-  items = await res.json();
-  renderTable();
+  try {
+    const res = await fetch('/api/items');
+    const data = await res.json();
+    items = Array.isArray(data) ? data : [];
+    renderTable();
+  } catch (error) {
+    console.error('Error loading items:', error);
+    items = [];
+    renderTable();
+  }
 }
 
 function renderTable() {
@@ -196,11 +203,15 @@ async function initializeDashboard() {
   try {
     const res = await authedFetch('/api/session');
     if (!res.ok) throw new Error('Session validation failed');
-    adminWrap.style.display = 'block';
-    await loadItems();
-  } catch {
+  } catch (err) {
+    token = null;
+    localStorage.removeItem('adminToken');
     window.location.href = '/admin-login.html';
+    return;
   }
+
+  adminWrap.style.display = 'block';
+  await loadItems();
 }
 
 initializeDashboard();

@@ -56,17 +56,23 @@ localAdmins.set('admin', {
 });
 
 const CLOUDINARY_ENABLED = Boolean(
-  process.env.CLOUDINARY_CLOUD_NAME &&
-  process.env.CLOUDINARY_API_KEY &&
-  process.env.CLOUDINARY_API_SECRET
+  process.env.CLOUDINARY_URL ||
+  (process.env.CLOUDINARY_CLOUD_NAME &&
+   process.env.CLOUDINARY_API_KEY &&
+   process.env.CLOUDINARY_API_SECRET)
 );
 
 if (CLOUDINARY_ENABLED) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
-  });
+  if (process.env.CLOUDINARY_URL) {
+    cloudinary.config();
+  } else {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+  }
+  console.log('☁️ Cloudinary storage configured successfully!');
 }
 
 // ---- Config ----
@@ -182,6 +188,29 @@ function removeUnreferencedMedia(urls, items) {
 }
 
 async function uploadMedia(files) {
+  if (CLOUDINARY_ENABLED) {
+    const uploaded = [];
+    try {
+      for (const file of files) {
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: 'shoe_collection',
+          resource_type: 'image'
+        });
+        uploaded.push({ url: result.secure_url, publicId: result.public_id });
+      }
+    } catch (error) {
+      await Promise.all(uploaded.map(media => cloudinary.uploader.destroy(media.publicId, { resource_type: 'image' })));
+      throw error;
+    } finally {
+      for (const file of files) fs.unlink(file.path, () => {});
+    }
+
+    return {
+      images: uploaded.map(media => media.url),
+      publicIds: uploaded.map(media => media.publicId)
+    };
+  }
+
   if (firebaseBucket) {
     const uploaded = [];
     try {
@@ -200,32 +229,9 @@ async function uploadMedia(files) {
     return { images: uploaded, publicIds: [] };
   }
 
-  if (!CLOUDINARY_ENABLED) {
-    return {
-      images: files.map(file => `/uploads/${file.filename}`),
-      publicIds: []
-    };
-  }
-
-  const uploaded = [];
-  try {
-    for (const file of files) {
-      const result = await cloudinary.uploader.upload(file.path, {
-        folder: 'shoe_collection',
-        resource_type: 'image'
-      });
-      uploaded.push({ url: result.secure_url, publicId: result.public_id });
-    }
-  } catch (error) {
-    await Promise.all(uploaded.map(media => cloudinary.uploader.destroy(media.publicId, { resource_type: 'image' })));
-    throw error;
-  } finally {
-    for (const file of files) fs.unlink(file.path, () => {});
-  }
-
   return {
-    images: uploaded.map(media => media.url),
-    publicIds: uploaded.map(media => media.publicId)
+    images: files.map(file => `/uploads/${file.filename}`),
+    publicIds: []
   };
 }
 
@@ -248,7 +254,7 @@ async function ensureAdminExists() {
     if (snapshot.empty) {
       await adminsRef.doc('main_admin').set({
         username: 'admin',
-        password: 'qwerty',
+        password: ADMIN_PASSWORD,
         email: 'nsmskipruto@gmail.com'
       });
       console.log('✅ Admin account seeded in Firebase');
@@ -263,59 +269,92 @@ ensureAdminExists();
 // Flexible Admin Login Route
 app.post('/api/admin/login', async (req, res) => {
   const { identifier, username, password } = req.body;
-  const lookup = identifier ?? username;
+  const rawLookup = identifier ?? username;
+
+  if (!rawLookup || !password) {
+    return res.status(400).json({ success: false, message: 'Username/email and password are required' });
+  }
+
+  const lookup = String(rawLookup).trim().toLowerCase();
+  const inputPassword = String(password);
 
   try {
-    if (!db) {
-      const localAdmin = [...localAdmins.values()].find(admin =>
-        (admin.username === lookup || admin.email === lookup) && admin.password === password
-      );
+    // 1. Check local admin map / master admin credentials first
+    const localAdmin = [...localAdmins.values()].find(admin =>
+      (admin.username.toLowerCase() === lookup || admin.email.toLowerCase() === lookup) && admin.password === inputPassword
+    );
 
-      if (localAdmin) {
+    const isMasterAdmin = (lookup === 'admin' || lookup === 'nsmskipruto@gmail.com') && inputPassword === ADMIN_PASSWORD;
+
+    if (!db || localAdmin || isMasterAdmin) {
+      if (localAdmin || isMasterAdmin) {
         const token = crypto.randomBytes(24).toString('hex');
         activeSessions.add(token);
         return res.json({
           success: true,
           message: 'Login successful',
           token,
-          admin: { username: localAdmin.username, email: localAdmin.email }
+          admin: {
+            username: localAdmin ? localAdmin.username : 'admin',
+            email: localAdmin ? localAdmin.email : 'nsmskipruto@gmail.com'
+          }
         });
       }
 
-      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+      if (!db) {
+        return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+      }
     }
 
+    // 2. Query Firestore admins collection
     const adminsRef = db.collection('admins');
     const snapshot = await adminsRef.get();
 
-    if (snapshot.empty) {
-      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
-    }
-
     let authenticatedAdmin = null;
 
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      const matchesIdentifier = (data.username === lookup || data.email === lookup);
-      const matchesPassword = (data.password === password);
+    if (!snapshot.empty) {
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        const dataUser = (data.username || '').trim().toLowerCase();
+        const dataEmail = (data.email || '').trim().toLowerCase();
+        const matchesIdentifier = (dataUser === lookup || dataEmail === lookup);
+        const matchesPassword = (data.password === inputPassword);
 
-      if (matchesIdentifier && matchesPassword) {
-        authenticatedAdmin = data;
-      }
-    });
+        if (matchesIdentifier && matchesPassword) {
+          authenticatedAdmin = data;
+        }
+      });
+    }
 
     if (authenticatedAdmin) {
+      const token = crypto.randomBytes(24).toString('hex');
+      activeSessions.add(token);
       return res.json({
         success: true,
         message: 'Login successful',
-        token: 'authenticated-admin-session',
-        admin: { username: authenticatedAdmin.username, email: authenticatedAdmin.email }
+        token,
+        admin: {
+          username: authenticatedAdmin.username,
+          email: authenticatedAdmin.email
+        }
       });
     }
 
     return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
 
   } catch (error) {
+    console.error('Login error:', error);
+    // If database connection fails, allow fallback to master admin
+    if ((lookup === 'admin' || lookup === 'nsmskipruto@gmail.com') && inputPassword === ADMIN_PASSWORD) {
+      const token = crypto.randomBytes(24).toString('hex');
+      activeSessions.add(token);
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        token,
+        admin: { username: 'admin', email: 'nsmskipruto@gmail.com' }
+      });
+    }
     res.status(500).json({ success: false, message: 'Database query error: ' + error.message });
   }
 });
@@ -332,19 +371,20 @@ app.post('/api/logout', requireAuth, (req, res) => {
 // ---- Public routes ----
 app.get('/api/items', async (req, res) => {
   try {
-    const snapshot = await productsCollection.orderBy('createdAt', 'desc').get();
-    const products = [];
-    snapshot.forEach(doc => {
-      products.push({ id: doc.id, ...doc.data() });
-    });
-    res.json(products);
+    const items = await readCatalogItems();
+    res.json(items);
   } catch (error) {
     console.error('FIREBASE FETCH ERROR:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Firebase connection failed',
-      error: error.message
-    });
+    try {
+      const items = readItems();
+      res.json(items);
+    } catch (fallbackError) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch items',
+        error: error.message
+      });
+    }
   }
 });
 
