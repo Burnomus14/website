@@ -50,6 +50,11 @@ const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
 const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || '';
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+const passwordResetRequests = new Map();
 const localAdmins = new Map();
 localAdmins.set('admin', {
   username: 'admin',
@@ -63,6 +68,23 @@ const CLOUDINARY_ENABLED = Boolean(
    process.env.CLOUDINARY_API_KEY &&
    process.env.CLOUDINARY_API_SECRET)
 );
+
+function hashAdminPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyAdminPassword(storedPassword, inputPassword) {
+  if (typeof storedPassword !== 'string') return false;
+  const [scheme, salt, expectedHash] = storedPassword.split('$');
+  if (scheme !== 'scrypt') return storedPassword === inputPassword;
+  if (!salt || !/^[a-f0-9]{128}$/i.test(expectedHash || '')) return false;
+
+  const actualHash = crypto.scryptSync(inputPassword, salt, 64);
+  const expected = Buffer.from(expectedHash, 'hex');
+  return actualHash.length === expected.length && crypto.timingSafeEqual(actualHash, expected);
+}
 
 if (CLOUDINARY_ENABLED) {
   if (process.env.CLOUDINARY_URL) {
@@ -107,22 +129,38 @@ function requireAuth(req, res, next) {
 }
 
 // ---- Data helpers ----
+function normalizeCatalogItem(item) {
+  const suppliedQuantity = item.quantity !== undefined && item.quantity !== null && item.quantity !== '';
+  const parsedQuantity = Number(item.quantity);
+  const quantity = suppliedQuantity && Number.isSafeInteger(parsedQuantity) && parsedQuantity >= 0
+    ? parsedQuantity
+    : item.status === 'sold' ? 0 : 1;
+  const legacyStatus = item.status === 'new' ? 'in-stock' : item.status;
+  return {
+    ...item,
+    quantity,
+    status: legacyStatus === 'regular' ? 'regular' : quantity > 0 ? 'in-stock' : 'sold'
+  };
+}
+
+function parseStockQuantity(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const quantity = Number(value);
+  return Number.isSafeInteger(quantity) && quantity >= 0 ? quantity : null;
+}
+
 function readItems() {
   if (!fs.existsSync(DATA_FILE)) return [];
   const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-  return raw.trim() ? JSON.parse(raw).map(item => ({
-    ...item,
-    status: item.status === 'new' ? 'in-stock' : item.status
-  })) : [];
+  return raw.trim() ? JSON.parse(raw).map(normalizeCatalogItem) : [];
 }
 
 async function readCatalogItems() {
   if (!db) return readItems();
   const snapshot = await productsCollection.get();
   return snapshot.docs.map(doc => {
-    const item = { id: doc.id, ...doc.data() };
+    const item = normalizeCatalogItem({ id: doc.id, ...doc.data() });
     if (item.createdAt?.toMillis) item.createdAt = item.createdAt.toMillis();
-    if (item.status === 'new') item.status = 'in-stock';
     return item;
   });
 }
@@ -256,7 +294,7 @@ async function ensureAdminExists() {
     if (snapshot.empty) {
       await adminsRef.doc('main_admin').set({
         username: 'admin',
-        password: ADMIN_PASSWORD,
+        password: hashAdminPassword(ADMIN_PASSWORD),
         email: 'nsmskipruto@gmail.com'
       });
       console.log('✅ Admin account seeded in Firebase');
@@ -281,15 +319,12 @@ app.post('/api/admin/login', async (req, res) => {
   const inputPassword = String(password);
 
   try {
-    // 1. Check local admin map / master admin credentials first
-    const localAdmin = [...localAdmins.values()].find(admin =>
-      (admin.username.toLowerCase() === lookup || admin.email.toLowerCase() === lookup) && admin.password === inputPassword
-    );
-
-    const isMasterAdmin = (lookup === 'admin' || lookup === 'nsmskipruto@gmail.com') && inputPassword === ADMIN_PASSWORD;
-
-    if (!db || localAdmin || isMasterAdmin) {
-      if (localAdmin || isMasterAdmin) {
+    if (!db) {
+      const localAdmin = [...localAdmins.values()].find(admin =>
+        (admin.username.toLowerCase() === lookup || admin.email.toLowerCase() === lookup) &&
+        verifyAdminPassword(admin.password, inputPassword)
+      );
+      if (localAdmin) {
         const token = crypto.randomBytes(24).toString('hex');
         activeSessions.add(token);
         return res.json({
@@ -302,13 +337,9 @@ app.post('/api/admin/login', async (req, res) => {
           }
         });
       }
-
-      if (!db) {
-        return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
-      }
+      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
     }
 
-    // 2. Query Firestore admins collection
     const adminsRef = db.collection('admins');
     const snapshot = await adminsRef.get();
 
@@ -320,7 +351,7 @@ app.post('/api/admin/login', async (req, res) => {
         const dataUser = (data.username || '').trim().toLowerCase();
         const dataEmail = (data.email || '').trim().toLowerCase();
         const matchesIdentifier = (dataUser === lookup || dataEmail === lookup);
-        const matchesPassword = (data.password === inputPassword);
+        const matchesPassword = verifyAdminPassword(data.password, inputPassword);
 
         if (matchesIdentifier && matchesPassword) {
           authenticatedAdmin = data;
@@ -346,18 +377,129 @@ app.post('/api/admin/login', async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    // If database connection fails, allow fallback to master admin
-    if ((lookup === 'admin' || lookup === 'nsmskipruto@gmail.com') && inputPassword === ADMIN_PASSWORD) {
-      const token = crypto.randomBytes(24).toString('hex');
-      activeSessions.add(token);
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        token,
-        admin: { username: 'admin', email: 'nsmskipruto@gmail.com' }
+    res.status(503).json({ success: false, message: 'Admin sign-in is temporarily unavailable.' });
+  }
+});
+
+app.post('/api/admin/password-reset/request', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+  }
+  if (!db || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
+    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
+  }
+
+  const now = Date.now();
+  const requestIp = req.ip || req.socket.remoteAddress || 'unknown';
+  const recentRequests = (passwordResetRequests.get(requestIp) || []).filter(timestamp => now - timestamp < 15 * 60 * 1000);
+  if (recentRequests.length >= 5) {
+    return res.status(429).json({ success: false, message: 'Too many requests. Try again later.' });
+  }
+  passwordResetRequests.set(requestIp, [...recentRequests, now]);
+
+  try {
+    const adminsSnapshot = await db.collection('admins').get();
+    const adminDoc = adminsSnapshot.docs.find(doc =>
+      String(doc.data().email || '').trim().toLowerCase() === email
+    );
+    const genericResponse = {
+      success: true,
+      message: 'If this email is registered as an admin, a password reset link will be sent.'
+    };
+    if (!adminDoc) return res.status(202).json(genericResponse);
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(now + PASSWORD_RESET_TTL_MS);
+    await adminDoc.ref.set({
+      passwordReset: { tokenHash, expiresAt }
+    }, { merge: true });
+
+    const resetUrl = `${PUBLIC_BASE_URL}/reset-password.html?token=${token}`;
+    const emailResponse = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: RESEND_FROM_EMAIL,
+        to: [email],
+        subject: 'Reset your admin password',
+        text: `Use this link to reset your admin password. It expires in 30 minutes.\n\n${resetUrl}`,
+        html: `<p>Use the link below to reset your admin password. It expires in 30 minutes.</p><p><a href="${resetUrl}">Reset admin password</a></p>`
+      })
+    });
+
+    if (!emailResponse.ok) {
+      await db.runTransaction(async transaction => {
+        const currentAdmin = await transaction.get(adminDoc.ref);
+        if (currentAdmin.data()?.passwordReset?.tokenHash === tokenHash) {
+          transaction.update(adminDoc.ref, { passwordReset: null });
+        }
       });
+      console.error('Password reset email provider returned:', emailResponse.status);
     }
-    res.status(500).json({ success: false, message: 'Database query error: ' + error.message });
+    return res.status(202).json(genericResponse);
+  } catch (error) {
+    console.error('Password reset request failed:', error.message);
+    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
+  }
+});
+
+app.post('/api/admin/password-reset/complete', async (req, res) => {
+  const token = String(req.body?.token || '').trim();
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+  if (!/^[a-f0-9]{64}$/i.test(token) || newPassword.length < 12 || newPassword.length > 128) {
+    return res.status(400).json({ success: false, message: 'This reset link is invalid or expired, or the password does not meet the requirements.' });
+  }
+  if (!db) {
+    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  try {
+    const adminsSnapshot = await db.collection('admins')
+      .where('passwordReset.tokenHash', '==', tokenHash)
+      .limit(1)
+      .get();
+    if (adminsSnapshot.empty) {
+      return res.status(400).json({ success: false, message: 'This reset link is invalid or expired.' });
+    }
+
+    const adminRef = adminsSnapshot.docs[0].ref;
+    const passwordHash = hashAdminPassword(newPassword);
+    await db.runTransaction(async transaction => {
+      const currentDoc = await transaction.get(adminRef);
+      const reset = currentDoc.data()?.passwordReset;
+      const expiry = reset?.expiresAt?.toMillis?.() ?? new Date(reset?.expiresAt || 0).getTime();
+      if (reset?.tokenHash !== tokenHash || !Number.isFinite(expiry) || expiry <= Date.now()) {
+        throw new Error('INVALID_OR_EXPIRED_RESET_TOKEN');
+      }
+      transaction.update(adminRef, {
+        password: passwordHash,
+        passwordReset: null,
+        passwordUpdatedAt: new Date()
+      });
+    });
+
+    activeSessions.clear();
+    const adminId = adminsSnapshot.docs[0].id;
+    try {
+      await getAuth().updateUser(adminId, { password: newPassword });
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') {
+        console.warn('Firebase Auth password sync failed:', error.message);
+      }
+    }
+    res.json({ success: true, message: 'Password reset. You can now sign in.' });
+  } catch (error) {
+    if (error.message === 'INVALID_OR_EXPIRED_RESET_TOKEN') {
+      return res.status(400).json({ success: false, message: 'This reset link is invalid or expired.' });
+    }
+    console.error('Password reset completion failed:', error.message);
+    res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
   }
 });
 
@@ -425,8 +567,102 @@ const MPESA_BASE_URL = (MPESA_ENVIRONMENT === 'production' || MPESA_ENVIRONMENT 
   : 'https://sandbox.safaricom.co.ke';
 
 const activeMpesaTransactions = new Map();
+const inventoryReservations = new Map();
+let inventoryLock = Promise.resolve();
 let cachedMpesaToken = null;
 let mpesaTokenExpiresAt = 0;
+
+function withInventoryLock(callback) {
+  const result = inventoryLock.then(callback, callback);
+  inventoryLock = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+function reservedQuantity(itemId) {
+  let total = 0;
+  for (const lines of inventoryReservations.values()) {
+    for (const line of lines) {
+      if (line.itemId === itemId) total += line.quantity;
+    }
+  }
+  return total;
+}
+
+async function reserveInventory(itemLines) {
+  return withInventoryLock(async () => {
+    const items = await readCatalogItems();
+    for (const line of itemLines) {
+      const item = items.find(entry => String(entry.id) === line.itemId);
+      if (!item || item.status !== 'in-stock') {
+        throw new Error(`${line.itemName} is no longer in stock.`);
+      }
+      if (line.quantity > item.quantity - reservedQuantity(line.itemId)) {
+        throw new Error(`Only ${Math.max(0, item.quantity - reservedQuantity(line.itemId))} ${line.itemName} available.`);
+      }
+      line.itemName = item.name;
+    }
+    const reservationId = crypto.randomUUID();
+    inventoryReservations.set(reservationId, itemLines);
+    return reservationId;
+  });
+}
+
+function attachInventoryReservation(reservationId, checkoutRequestId) {
+  const lines = inventoryReservations.get(reservationId);
+  if (!lines) return;
+  inventoryReservations.delete(reservationId);
+  inventoryReservations.set(checkoutRequestId, lines);
+}
+
+function releaseInventoryReservation(checkoutRequestId) {
+  inventoryReservations.delete(checkoutRequestId);
+}
+
+async function completeMpesaTransaction(checkoutRequestId, transaction) {
+  return withInventoryLock(async () => {
+    const latest = await loadPendingTransaction(checkoutRequestId);
+    if (latest.inventoryApplied) {
+      releaseInventoryReservation(checkoutRequestId);
+      return latest;
+    }
+
+    const lines = latest.itemLines || transaction.itemLines || [];
+    if (lines.length) {
+      const items = await readCatalogItems();
+      let changed = false;
+      for (const line of lines) {
+        const item = items.find(entry => String(entry.id) === String(line.itemId));
+        if (!item) continue;
+        item.quantity = Math.max(0, item.quantity - line.quantity);
+        if (item.status !== 'regular') item.status = item.quantity > 0 ? 'in-stock' : 'sold';
+        changed = true;
+      }
+      if (changed) await writeItems(items);
+    }
+
+    const completed = {
+      ...latest,
+      ...transaction,
+      status: 'COMPLETED',
+      inventoryApplied: true,
+      completedAt: latest.completedAt || Date.now()
+    };
+    await storePendingTransaction(checkoutRequestId, completed);
+    releaseInventoryReservation(checkoutRequestId);
+    return completed;
+  });
+}
+
+async function failMpesaTransaction(checkoutRequestId, transaction) {
+  return withInventoryLock(async () => {
+    const latest = await loadPendingTransaction(checkoutRequestId);
+    if (latest.inventoryApplied || latest.status === 'COMPLETED') return latest;
+    releaseInventoryReservation(checkoutRequestId);
+    const failed = { ...latest, ...transaction, status: 'FAILED' };
+    await storePendingTransaction(checkoutRequestId, failed);
+    return failed;
+  });
+}
 
 async function getMpesaToken() {
   if (cachedMpesaToken && Date.now() < mpesaTokenExpiresAt) {
@@ -488,16 +724,24 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
   }
 
   const numericAmount = Math.max(1, Math.round(Number(String(amount).replace(/[^0-9.]/g, '')) || 1));
-  const itemLines = Array.isArray(rawItemLines) ? rawItemLines
-    .map(line => ({
-      itemId: line?.itemId ? String(line.itemId).slice(0, 128) : null,
-      itemName: String(line?.itemName || '').trim().slice(0, 120),
-      quantity: Math.min(999, Math.max(1, Math.floor(Number(line?.quantity) || 1)))
-    }))
-    .filter(line => line.itemName)
-    .slice(0, 50) : [];
+  if (!Array.isArray(rawItemLines) || rawItemLines.length === 0 || rawItemLines.length > 50) {
+    return res.status(400).json({ success: false, message: 'A valid list of items is required for checkout.' });
+  }
+  const itemLines = [];
+  for (const line of rawItemLines) {
+    const itemId = line?.itemId ? String(line.itemId).slice(0, 128) : '';
+    const quantity = Number(line?.quantity);
+    if (!itemId || !Number.isSafeInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ success: false, message: 'Each checkout item must have a valid ID and quantity.' });
+    }
+    const existingLine = itemLines.find(entry => entry.itemId === itemId);
+    if (existingLine) existingLine.quantity += quantity;
+    else itemLines.push({ itemId, itemName: String(line?.itemName || '').trim().slice(0, 120), quantity });
+  }
 
+  let reservationId;
   try {
+    reservationId = await reserveInventory(itemLines);
     const token = await getMpesaToken();
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
 
@@ -550,6 +794,8 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
     }
 
     if (stkData.ResponseCode === '0' || stkData.CheckoutRequestID) {
+      attachInventoryReservation(reservationId, stkData.CheckoutRequestID);
+      reservationId = stkData.CheckoutRequestID;
       await storePendingTransaction(stkData.CheckoutRequestID, {
         checkoutRequestId: stkData.CheckoutRequestID,
         merchantRequestId: stkData.MerchantRequestID,
@@ -572,14 +818,17 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
       });
     }
 
+    releaseInventoryReservation(reservationId);
     return res.status(400).json({
       success: false,
       message: stkData.errorMessage || stkData.ResponseDescription || 'Failed to initiate M-Pesa prompt.'
     });
 
   } catch (error) {
+    if (reservationId) releaseInventoryReservation(reservationId);
     console.error('M-Pesa STK push error:', error);
-    res.status(500).json({ success: false, message: error.message || 'M-Pesa server error.' });
+    const statusCode = /no longer in stock|available\./i.test(error.message) ? 409 : 500;
+    res.status(statusCode).json({ success: false, message: error.message || 'M-Pesa server error.' });
   }
 });
 
@@ -594,19 +843,14 @@ app.post('/api/mpesa/callback', async (req, res) => {
     console.log('M-Pesa Callback:', CheckoutRequestID, ResultCode, ResultDesc);
 
     const transaction = await loadPendingTransaction(CheckoutRequestID);
+    if (!transaction.checkoutRequestId) {
+      return res.json({ ResultCode: 0, ResultDesc: 'Accepted; transaction is not stored yet' });
+    }
 
     if (ResultCode === 0) {
-      await storePendingTransaction(CheckoutRequestID, {
-        ...transaction,
-        status: 'COMPLETED',
-        completedAt: Date.now()
-      });
+      await completeMpesaTransaction(CheckoutRequestID, transaction);
     } else {
-      await storePendingTransaction(CheckoutRequestID, {
-        ...transaction,
-        status: 'FAILED',
-        error: ResultDesc
-      });
+      await failMpesaTransaction(CheckoutRequestID, { ...transaction, error: ResultDesc });
     }
 
     res.json({ ResultCode: 0, ResultDesc: 'Callback processed successfully' });
@@ -652,19 +896,14 @@ app.get('/api/mpesa/status/:checkoutRequestId', async (req, res) => {
     });
     const queryData = await queryRes.json();
     if (String(queryData.ResultCode) === '0') {
-      await storePendingTransaction(checkoutRequestId, {
-        ...transaction,
-        status: 'COMPLETED',
-        completedAt: Date.now()
-      });
+        await completeMpesaTransaction(checkoutRequestId, transaction);
       return res.json({ success: true, status: 'COMPLETED' });
     }
     if (queryData.ResultCode && String(queryData.ResultCode) !== '1032' && String(queryData.ResultCode) !== '4999') {
       const failedCodes = ['1032', '1037', '1', '2001', '1001'];
       if (failedCodes.includes(String(queryData.ResultCode))) {
-        await storePendingTransaction(checkoutRequestId, {
+        await failMpesaTransaction(checkoutRequestId, {
           ...transaction,
-          status: 'FAILED',
           error: queryData.ResultDesc || 'Payment cancelled or failed.'
         });
         return res.json({ success: false, status: 'FAILED', message: queryData.ResultDesc || 'Payment cancelled or failed.' });
@@ -740,7 +979,7 @@ app.post('/api/admin/create', requireAuth, async (req, res) => {
       await docRef.set({
         username: cleanUsername,
         email: cleanEmail,
-        password: rawPassword,
+        password: hashAdminPassword(rawPassword),
         role: 'admin',
         createdAt: new Date()
       });
@@ -811,6 +1050,9 @@ app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
   if (!name || !category) {
     return res.status(400).json({ error: 'Name and category are required' });
   }
+  const quantity = parseStockQuantity(req.body.quantity ?? (status === 'sold' ? 0 : 1));
+  if (quantity === null) return res.status(400).json({ error: 'Quantity must be a non-negative whole number' });
+  const normalizedStatus = status === 'regular' ? 'regular' : quantity > 0 ? 'in-stock' : 'sold';
   const items = await readCatalogItems();
   const uploadedFiles = getUploadedFiles(req);
   let media;
@@ -826,7 +1068,8 @@ app.post('/api/items', requireAuth, uploadImages, async (req, res) => {
     category,           // "shoes" | "clothes"
     caption: caption || '',
     price: price || '',
-    status: status || 'in-stock',   // "in-stock" | "sold" | "regular"
+    quantity,
+    status: normalizedStatus,
     images: media.images,
     image: media.images[0] || null,
     cloudinaryPublicIds: media.publicIds,
@@ -844,6 +1087,15 @@ app.patch('/api/items/:id', requireAuth, uploadImages, async (req, res) => {
 
   const { name, category, caption, price, status } = req.body;
   const existing = items[idx];
+  const quantity = req.body.quantity === undefined
+    ? existing.quantity
+    : parseStockQuantity(req.body.quantity);
+  if (quantity === null) return res.status(400).json({ error: 'Quantity must be a non-negative whole number' });
+  if (quantity < reservedQuantity(String(existing.id))) {
+    return res.status(409).json({ error: 'Quantity cannot be lower than the amount reserved for pending checkouts' });
+  }
+  const requestedStatus = status ?? existing.status;
+  const normalizedStatus = requestedStatus === 'regular' ? 'regular' : quantity > 0 ? 'in-stock' : 'sold';
   const uploadedFiles = getUploadedFiles(req);
   const oldMedia = getMediaUrls(existing);
   let media = null;
@@ -862,7 +1114,8 @@ app.patch('/api/items/:id', requireAuth, uploadImages, async (req, res) => {
     category: category ?? existing.category,
     caption: caption ?? existing.caption,
     price: price ?? existing.price,
-    status: status ?? existing.status,
+    quantity,
+    status: normalizedStatus,
     ...(media ? { images, image: media.images[0] || null, cloudinaryPublicIds: media.publicIds } : {})
   };
   await writeItems(items);

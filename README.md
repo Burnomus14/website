@@ -24,6 +24,8 @@ An AMOLED black/white catalog site for your shoe and clothes collection, with a 
 
 The local `.env` file contains the server port and seller WhatsApp number. It is ignored by Git and should never be committed.
 
+Admin password reset email uses Resend. Configure `RESEND_API_KEY`, `RESEND_FROM_EMAIL` (a verified sender), and `PUBLIC_BASE_URL` (the site's public HTTPS origin) in `.env` or your hosting provider. Reset links expire after 30 minutes and can only be used once. Requests return a generic response to avoid confirming whether an email belongs to an admin.
+
 ## M-Pesa Daraja checkout
 
 The storefront uses Daraja STK Push. Add these values to `.env` for local testing or configure them as secrets in your hosting provider:
@@ -51,11 +53,14 @@ Create an app in the Safaricom Daraja portal to obtain the consumer key and secr
 
 Go to the admin panel, sign in, and use the "Add a new item" form. Each item has:
 - **Name** and **category** (shoes / clothes) — required
+- **Quantity in stock** — a non-negative whole number; positive quantities are in stock and zero is sold
+- **Status** — In the archive is a manual override available from the item form or table
 - **Price** and **caption** — optional
-- **Status** — In stock, In the archive, or Sold (you can also change this later with a single dropdown per row, without re-editing the whole item)
 - **Image** — optional, shown as a placeholder card if left off
 
 ## Deploying it live
+Only in-stock items can be added to the basket or checked out with M-Pesa. Sold and archived items remain available for WhatsApp inquiries. Basket quantities cannot exceed available stock, and successful M-Pesa payments reduce the stored quantity.
+
 
 This is a small Node app, so it deploys easily to something like Render, Railway, or a VPS — anywhere that can run `npm install && npm start` and keep a persistent disk for `data/` and `public/uploads/`. (Free static hosts like Netlify/Vercel won't work as-is since this needs a running Node server, not just static files.)
 
@@ -72,6 +77,9 @@ This is a small Node app, so it deploys easily to something like Render, Railway
    - `CLOUDINARY_API_KEY` = your Cloudinary API key
    - `CLOUDINARY_API_SECRET` = your Cloudinary API secret
    - `FIREBASE_SERVICE_ACCOUNT` = the Firebase service-account JSON as a single-line value
+   - `RESEND_API_KEY` = a Resend API key
+   - `RESEND_FROM_EMAIL` = a verified sender address, for example `The Collection <admin@example.com>`
+   - `PUBLIC_BASE_URL` = the public site origin, for example `https://your-site.onrender.com`
 4. Deploy the web service. Render provides the public URL after the build finishes.
 
 The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. When the three Cloudinary variables are set, new admin uploads are stored in the `shoe_collection` Cloudinary folder and use permanent Cloudinary URLs. Without them, the app falls back to the persistent disk and `/uploads/<filename>` URLs. Existing local images must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; Cloudinary is preferred for multi-instance deployments.

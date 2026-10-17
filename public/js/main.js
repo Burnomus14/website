@@ -18,6 +18,7 @@ async function loadItems() {
     allItems = await itemsRes.json();
     const config = await configRes.json();
     sellerPhoneNumber = config.sellerPhone || sellerPhoneNumber;
+    reconcileCartWithStock();
     render();
   } catch {
     galleryEl.innerHTML = `<div class="empty-state"><h2>Couldn't load the collection</h2><p>Make sure the server is running, then refresh.</p></div>`;
@@ -44,6 +45,26 @@ function getItemImages(item) {
   return item.image ? [item.image] : [];
 }
 
+function getCurrentProduct(productId) {
+  return allItems.find(item => String(item.id) === String(productId));
+}
+
+function isPurchasable(item) {
+  return item?.status === 'in-stock' && Number(item.quantity) > 0;
+}
+
+function reconcileCartWithStock() {
+  cart = cart.reduce((nextCart, cartItem) => {
+    const product = getCurrentProduct(cartItem.id);
+    if (!isPurchasable(product)) return nextCart;
+    const quantity = Math.min(Number(cartItem.quantity) || 0, Number(product.quantity));
+    if (quantity > 0) nextCart.push({ ...product, quantity });
+    return nextCart;
+  }, []);
+  saveCart();
+  updateCartCount();
+}
+
 function render() {
   const items = allItems.filter(item => matchesFilter(item) && matchesSearch(item));
   if (searchResultPopup) {
@@ -60,6 +81,10 @@ function render() {
   galleryEl.innerHTML = items.map((item, i) => {
     const image = getItemImages(item)[0];
     const media = image ? `<img src="${image}" alt="${escapeHtml(item.name)}" loading="lazy" />` : '<span>No image</span>';
+    const actions = isPurchasable(item)
+      ? `<button class="btn btn-add-cart" type="button" data-cart-id="${item.id}">Add to basket</button>
+         <button class="btn btn-whatsapp-direct" type="button" data-whatsapp-id="${item.id}">WhatsApp</button>`
+      : `<button class="btn btn-whatsapp-direct" type="button" data-whatsapp-id="${item.id}">WhatsApp</button>`;
     return `
       <article class="card ${item.status === 'sold' ? 'sold' : ''}" style="animation-delay:${Math.min(i * 40, 400)}ms">
         <div class="card-media ${image ? '' : 'placeholder'}" data-product-id="${item.id}" role="button" tabindex="0" aria-label="View ${escapeHtml(item.name)}">${media}</div>
@@ -69,15 +94,14 @@ function render() {
           ${item.caption ? `<p class="card-caption">${escapeHtml(item.caption)}</p>` : ''}
           ${item.price ? `<div class="card-price">${escapeHtml(item.price)}</div>` : ''}
           <div class="card-actions">
-            <button class="btn btn-add-cart" type="button" data-cart-id="${item.id}">Add to basket</button>
-            <button class="btn btn-whatsapp-direct" type="button" data-whatsapp-id="${item.id}">WhatsApp</button>
+            ${actions}
           </div>
         </div>
       </article>`;
   }).join('');
 
   galleryEl.querySelectorAll('[data-cart-id]').forEach(button => {
-    button.addEventListener('click', () => addToCart(button.dataset.cartId));
+    button.addEventListener('click', () => addToCart(button.dataset.cartId, button));
   });
   galleryEl.querySelectorAll('[data-whatsapp-id]').forEach(button => {
     button.addEventListener('click', () => orderSingleWhatsApp(button.dataset.whatsappId));
@@ -100,7 +124,7 @@ function statusLabel(status) {
 }
 
 function openProductModal(productId) {
-  const product = allItems.find(item => String(item.id) === String(productId));
+  const product = getCurrentProduct(productId);
   const modal = document.getElementById('product-modal');
   if (!product || !modal) return;
 
@@ -129,8 +153,13 @@ function openProductModal(productId) {
     thumbnails.innerHTML = '<span class="modal-no-image">No images available</span>';
   }
 
-  document.getElementById('modal-add-cart').onclick = () => addToCart(product.id);
-  document.getElementById('modal-buy-mpesa').onclick = () => startMpesaCheckout({
+  const addCartButton = document.getElementById('modal-add-cart');
+  const mpesaButton = document.getElementById('modal-buy-mpesa');
+  const available = isPurchasable(product);
+  addCartButton.hidden = !available;
+  mpesaButton.hidden = !available;
+  addCartButton.onclick = () => addToCart(product.id, addCartButton);
+  mpesaButton.onclick = () => startMpesaCheckout({
     itemName: product.name,
     amount: parsePrice(product.price),
     itemId: product.id,
@@ -160,20 +189,45 @@ function closeProductModal() {
   activeProduct = null;
 }
 
-function addToCart(productId) {
-  const product = allItems.find(item => String(item.id) === String(productId));
-  if (!product) return;
+function addToCart(productId, button) {
+  const product = getCurrentProduct(productId);
+  if (!isPurchasable(product)) return;
   const existing = cart.find(item => String(item.id) === String(productId));
+  if (existing && existing.quantity >= Number(product.quantity)) {
+    showToast(`Only ${product.quantity} available`);
+    return;
+  }
   if (existing) existing.quantity += 1;
   else cart.push({ ...product, quantity: 1 });
   saveCart();
   updateCartCount();
+  showAddedFeedback(button);
   showToast(`${product.name} added to basket`);
+}
+
+function showAddedFeedback(button) {
+  if (!button) return;
+  clearTimeout(button.addedFeedbackTimer);
+  button.textContent = 'Added';
+  button.classList.remove('is-added');
+  void button.offsetWidth;
+  button.classList.add('is-added');
+  button.addedFeedbackTimer = setTimeout(() => {
+    button.textContent = 'Add to basket';
+    button.classList.remove('is-added');
+  }, 850);
 }
 
 function updateQuantity(productId, delta) {
   const item = cart.find(entry => String(entry.id) === String(productId));
   if (!item) return;
+  const product = getCurrentProduct(productId);
+  if (delta > 0 && (!isPurchasable(product) || item.quantity >= Number(product.quantity))) {
+    showToast(product ? `Only ${product.quantity} available` : 'This item is no longer available');
+    reconcileCartWithStock();
+    renderCartModal();
+    return;
+  }
   item.quantity += delta;
   if (item.quantity <= 0) cart = cart.filter(entry => String(entry.id) !== String(productId));
   saveCart();
@@ -255,6 +309,8 @@ function renderCartModal() {
     const itemTotal = itemPrice * item.quantity;
     grandTotal += itemTotal;
     const itemImage = getItemImages(item)[0];
+    const product = getCurrentProduct(item.id);
+    const stockLimitReached = !isPurchasable(product) || item.quantity >= Number(product.quantity);
     return `
       <div class="cart-item">
         ${itemImage ? `<img src="${itemImage}" alt="${escapeHtml(item.name)}" />` : '<div class="cart-item-image"></div>'}
@@ -264,7 +320,7 @@ function renderCartModal() {
           <div class="quantity-controls">
             <button type="button" data-quantity-id="${item.id}" data-delta="-1" aria-label="Decrease quantity">-</button>
             <span>${item.quantity}</span>
-            <button type="button" data-quantity-id="${item.id}" data-delta="1" aria-label="Increase quantity">+</button>
+            <button type="button" data-quantity-id="${item.id}" data-delta="1" aria-label="Increase quantity" ${stockLimitReached ? 'disabled' : ''}>+</button>
           </div>
         </div>
         <button class="remove-btn" type="button" data-remove-id="${item.id}" aria-label="Remove item">&times;</button>
@@ -358,6 +414,7 @@ let currentCheckout = null;
 let mpesaPollTimer = null;
 
 function checkoutCartWithMpesa() {
+  reconcileCartWithStock();
   if (cart.length === 0) {
     alert('Your basket is empty!');
     return;

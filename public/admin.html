@@ -78,6 +78,10 @@
           <input type="text" id="price" placeholder="e.g. $120" />
         </div>
         <div class="field">
+          <label for="quantity">Quantity in stock</label>
+          <input type="number" id="quantity" min="0" step="1" value="1" required />
+        </div>
+        <div class="field">
           <label for="status">Status</label>
           <select id="status">
             <option value="in-stock">In stock</option>
@@ -116,6 +120,7 @@
           <th>Name</th>
           <th>Category</th>
           <th>Price</th>
+          <th>Quantity</th>
           <th>Status</th>
           <th></th>
         </tr>

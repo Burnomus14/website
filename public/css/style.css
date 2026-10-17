@@ -220,6 +220,14 @@ a { color: inherit; }
 .card-actions .btn { flex: 1; padding: 9px 10px; border: 0; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
 .btn-add-cart { background: #333; color: #fff; }
 .btn-add-cart:hover { background: #555; }
+.btn-add-cart.is-added { background: #25d366; color: #111; animation: basket-added-flash 850ms ease-out; }
+@keyframes basket-added-flash {
+  30% { transform: scale(1.06); box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.24); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 211, 102, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-add-cart.is-added { animation: none; }
+}
 .btn-whatsapp-direct { background: #25d366; color: #fff; }
 .btn-whatsapp-direct:hover { background: #1ebe5d; }
 
@@ -318,6 +326,7 @@ display: inline-block;
 .modal-description { flex: 1; margin: 0; color: var(--ink-dim); line-height: 1.6; }
 .modal-actions { display: flex; gap: 8px; margin-top: 28px; }
 .modal-actions .btn { flex: 1; border: 0; border-radius: 6px; }
+.modal-actions .btn[hidden] { display: none; }
 
 @media (max-width: 700px) {
   .product-modal { padding: 10px; }
@@ -440,6 +449,14 @@ display: inline-block;
   padding: 40px 5vw;
   text-align: center;
 }
+
+.reset-wrap { width: min(440px, 100%); margin: 10vh auto; padding: 0 20px; }
+.reset-card { padding: 28px; border: 1px solid var(--line); background: var(--card); }
+.reset-card h1 { margin: 0 0 18px; font-family: var(--font-display); font-size: 23px; }
+.reset-form > p { margin: 0 0 20px; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
+.reset-form .btn { width: 100%; }
+.reset-status { min-height: 20px; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
+.reset-back-link { display: inline-block; margin-top: 8px; color: var(--ink-dim); font-size: 13px; }
 
 .login-box h1 {
   font-family: var(--font-display);
