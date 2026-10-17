@@ -378,8 +378,8 @@ display: inline-block;
 .quantity-controls { display: flex; align-items: center; gap: 8px; }
 .quantity-controls button { width: 24px; height: 24px; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 4px; cursor: pointer; }
 .remove-btn { color: #ff6b6b; font-size: 20px; }
-.cart-footer { border-top: 1px solid var(--line); border-bottom: 0; }
-.cart-summary { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 15px; font-weight: 600; }
+.cart-footer { flex: 0 0 auto; padding: 12px 20px; border-top: 0; border-bottom: 1px solid var(--line); }
+.cart-summary { display: flex; justify-content: space-between; margin-bottom: 0; font-size: 15px; font-weight: 600; }
 .btn-whatsapp-cart { width: 100%; padding: 12px; border: 0; border-radius: 6px; background: #25d366; color: #fff; font-weight: 700; cursor: pointer; }
 .btn-whatsapp-cart:hover { background: #1ebe5d; }
 .empty-cart-msg { color: var(--ink-dim); font-size: 13px; }
@@ -424,6 +424,38 @@ display: inline-block;
 }
 
 .btn:hover { opacity: 0.85; }
+
+.btn-mpesa {
+  border: 1px solid rgba(210, 242, 255, 0.62);
+  border-radius: 14px;
+  background: linear-gradient(140deg, rgba(190, 232, 252, 0.26), rgba(93, 166, 211, 0.12) 52%, rgba(51, 120, 173, 0.24));
+  color: #e8f7ff;
+  font-weight: 700;
+  backdrop-filter: blur(20px) saturate(185%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.42), inset 0 -1px 0 rgba(180, 225, 249, 0.18), 0 7px 20px rgba(31, 126, 185, 0.18);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.btn-mpesa:hover {
+  opacity: 1;
+  border-color: rgba(204, 239, 255, 0.82);
+  background: linear-gradient(135deg, rgba(137, 210, 249, 0.44), rgba(79, 158, 215, 0.3));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 7px 22px rgba(31, 126, 185, 0.24);
+  transform: translateY(-1px);
+}
+
+.btn-mpesa:focus-visible {
+  outline: 2px solid #aee5ff;
+  outline-offset: 3px;
+}
+
+.modal-actions #modal-buy-mpesa { flex: 1 1 100%; margin-bottom: 8px; }
+.modal-actions .btn-mpesa { border-radius: 14px; }
+.basket-action-wrapper .btn-mpesa { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-mpesa { transition: none; }
+}
 
 .btn.ghost {
   background: transparent;

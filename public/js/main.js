@@ -330,7 +330,7 @@ function renderCartModal() {
   itemsHtml += `
     <div class="basket-action-wrapper">
       <button class="btn-whatsapp-cart" id="send-whatsapp-cart" type="button">Send Basket to WhatsApp</button>
-      <button class="btn btn-mpesa" id="cart-checkout-mpesa" type="button" style="width:100%; background:#00a859; border-color:#00a859; color:#fff; font-weight:700;">Checkout with M-Pesa</button>
+      <button class="btn btn-mpesa" id="cart-checkout-mpesa" type="button">Checkout with M-Pesa</button>
     </div>`;
 
   container.innerHTML = itemsHtml;

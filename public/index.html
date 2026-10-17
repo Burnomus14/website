@@ -51,10 +51,10 @@
     <h2>Your basket</h2>
     <button class="close-btn" id="close-cart" type="button" aria-label="Close basket">&times;</button>
   </div>
-  <div class="cart-items" id="cart-items-container"></div>
   <div class="cart-footer">
     <div class="cart-summary"><span>Total</span><span id="cart-total-price">KSh 0.00</span></div>
   </div>
+  <div class="cart-items" id="cart-items-container"></div>
 </aside>
 
 <div class="product-modal" id="product-modal" role="dialog" aria-modal="true" aria-labelledby="modal-product-title" hidden>
@@ -73,7 +73,7 @@
         <p id="modal-product-price" class="modal-price"></p>
         <p id="modal-product-desc" class="modal-description"></p>
         <div class="modal-actions" style="flex-wrap:wrap;">
-          <button id="modal-buy-mpesa" class="btn btn-mpesa" type="button" style="flex:1 1 100%; background:#00a859; border-color:#00a859; color:#fff; font-weight:700; margin-bottom:8px;">Buy with M-Pesa</button>
+          <button id="modal-buy-mpesa" class="btn btn-mpesa" type="button">Buy with M-Pesa</button>
           <button id="modal-add-cart" class="btn btn-add-cart" type="button">Add to basket</button>
           <button id="modal-buy-whatsapp" class="btn btn-whatsapp-direct" type="button">WhatsApp</button>
         </div>
