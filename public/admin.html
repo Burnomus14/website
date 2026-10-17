@@ -75,7 +75,7 @@
         </div>
         <div class="field">
           <label for="price">Price (optional)</label>
-          <input type="text" id="price" placeholder="e.g. $120" />
+          <input type="text" id="price" inputmode="numeric" placeholder="e.g. 1,200/=" />
         </div>
         <div class="field">
           <label for="quantity">Quantity in stock</label>
@@ -94,14 +94,15 @@
           <textarea id="caption" placeholder="A line or two about this piece"></textarea>
         </div>
         <div class="form-group">
-          <label for="imageInput">Product Image:</label>
+          <label for="imageInput">Product Images (up to 8):</label>
           <input
             type="file"
             id="imageInput"
-            name="image"
+            name="images"
             accept="image/*"
+            multiple
           />
-          <button type="button" class="btn ghost" id="customUploadBtn">Choose image</button>
+          <button type="button" class="btn ghost" id="customUploadBtn">Choose images</button>
         </div>
       </div>
       <div class="row-actions" style="margin-top:18px">

@@ -202,7 +202,7 @@ const upload = multer({
   }
 });
 const uploadImages = upload.fields([
-  { name: 'images', maxCount: 12 },
+  { name: 'images', maxCount: 8 },
   { name: 'image', maxCount: 1 }
 ]);
 

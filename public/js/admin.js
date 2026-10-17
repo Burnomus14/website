@@ -10,6 +10,7 @@ const tableBody = document.getElementById('itemsTableBody');
 const toast = document.getElementById('toast');
 const customUploadBtn = document.getElementById('customUploadBtn');
 const imageInput = document.getElementById('imageInput');
+const priceInput = document.getElementById('price');
 const quantityInput = document.getElementById('quantity');
 const statusInput = document.getElementById('status');
 
@@ -17,6 +18,23 @@ customUploadBtn.addEventListener('click', () => {
   imageInput.removeAttribute('capture');
   imageInput.click();
 });
+
+function formatPriceInput() {
+  const digitsBeforeCursor = priceInput.value.slice(0, priceInput.selectionStart).replace(/\D/g, '').length;
+  const digits = priceInput.value.replace(/\D/g, '');
+  const formattedDigits = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  priceInput.value = digits ? `${formattedDigits}/=` : '';
+
+  let cursor = 0;
+  let digitCount = 0;
+  while (cursor < formattedDigits.length && digitCount < digitsBeforeCursor) {
+    if (/\d/.test(formattedDigits[cursor])) digitCount++;
+    cursor++;
+  }
+  priceInput.setSelectionRange(cursor, cursor);
+}
+
+priceInput.addEventListener('input', formatPriceInput);
 
 let token = localStorage.getItem('adminToken') || null;
 let items = [];
@@ -140,7 +158,8 @@ function startEdit(id) {
   editingId = id;
   document.getElementById('name').value = item.name;
   document.getElementById('category').value = item.category;
-  document.getElementById('price').value = item.price || '';
+  priceInput.value = item.price || '';
+  formatPriceInput();
   quantityInput.value = Number.isInteger(Number(item.quantity)) ? item.quantity : (item.status === 'sold' ? 0 : 1);
   statusInput.value = item.status;
   syncStatusToQuantity();
@@ -181,8 +200,8 @@ itemForm.addEventListener('submit', async (e) => {
   fd.append('status', statusInput.value);
   fd.append('caption', document.getElementById('caption').value.trim());
   const imageFiles = Array.from(document.getElementById('imageInput').files);
-  if (imageFiles.length > 12) {
-    formError.textContent = 'Choose up to 12 images.';
+  if (imageFiles.length > 8) {
+    formError.textContent = 'Choose up to 8 images.';
     submitBtn.disabled = false;
     return;
   }
