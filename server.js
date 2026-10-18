@@ -150,7 +150,7 @@ function parseStockQuantity(value) {
 }
 
 function parseCatalogPrice(value) {
-  const match = String(value ?? '').replace(/,/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
+  const match = String(value ?? '').replace(/[\s,]/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
   if (!match) return null;
   const price = Number(match[0]);
   return Number.isFinite(price) && price > 0 ? Math.round(price) : null;

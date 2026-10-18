@@ -445,7 +445,7 @@ document.getElementById('sort-order').addEventListener('change', event => {
 });
 
 function parsePrice(value) {
-  const price = String(value || '').replace(/,/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
+  const price = String(value || '').replace(/[\s,]/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
   return price ? Math.round(Number(price[0])) : 0;
 }
 
