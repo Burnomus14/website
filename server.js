@@ -596,6 +596,39 @@ function reservedQuantity(itemId) {
 }
 
 async function reserveInventory(itemLines) {
+  const reservationsToRefresh = await withInventoryLock(async () => {
+    const items = await readCatalogItems();
+    const affectedItemIds = new Set();
+    for (const line of itemLines) {
+      const item = items.find(entry => String(entry.id) === line.itemId);
+      if (item && line.quantity <= item.quantity && line.quantity > item.quantity - reservedQuantity(line.itemId)) {
+        affectedItemIds.add(line.itemId);
+      }
+    }
+    if (!affectedItemIds.size) return [];
+    return Array.from(inventoryReservations.entries())
+      .filter(([, lines]) => lines.some(line => affectedItemIds.has(line.itemId)))
+      .map(([checkoutRequestId]) => checkoutRequestId);
+  });
+
+  for (const checkoutRequestId of reservationsToRefresh) {
+    const transaction = await loadPendingTransaction(checkoutRequestId);
+    if (!transaction.checkoutRequestId || transaction.status !== 'PENDING') continue;
+    try {
+      const queryData = await queryMpesaTransaction(checkoutRequestId, transaction);
+      if (String(queryData.ResultCode) === '0') {
+        await completeMpesaTransaction(checkoutRequestId, transaction, queryData.ResultCode);
+      } else if (['1032', '1037', '1', '2001', '1001'].includes(String(queryData.ResultCode))) {
+        await failMpesaTransaction(checkoutRequestId, {
+          ...transaction,
+          error: queryData.ResultDesc || 'Payment cancelled or failed.'
+        });
+      }
+    } catch (error) {
+      console.error('M-Pesa reservation check failed:', error.message);
+    }
+  }
+
   return withInventoryLock(async () => {
     const items = await readCatalogItems();
     for (const line of itemLines) {
@@ -603,8 +636,13 @@ async function reserveInventory(itemLines) {
       if (!item || item.status !== 'in-stock' || item.quantity < 1) {
         throw new Error(`${line.itemName} is no longer in stock.`);
       }
-      if (line.quantity > item.quantity - reservedQuantity(line.itemId)) {
-        throw new Error(`Only ${Math.max(0, item.quantity - reservedQuantity(line.itemId))} ${line.itemName} available.`);
+      if (line.quantity > item.quantity) {
+        throw new Error(`Only ${item.quantity} ${line.itemName} available in the store.`);
+      }
+      const heldQuantity = reservedQuantity(line.itemId);
+      const availableQuantity = Math.max(0, item.quantity - heldQuantity);
+      if (line.quantity > availableQuantity) {
+        throw new Error(`Only ${availableQuantity} ${line.itemName} currently available (${item.quantity} in the store, ${heldQuantity} reserved for pending payments).`);
       }
       line.itemName = item.name;
       line.unitAmount = parseCatalogPrice(item.price);
@@ -627,7 +665,9 @@ function releaseInventoryReservation(checkoutRequestId) {
   inventoryReservations.delete(checkoutRequestId);
 }
 
-async function completeMpesaTransaction(checkoutRequestId, transaction) {
+async function completeMpesaTransaction(checkoutRequestId, transaction, resultCode) {
+  if (String(resultCode) !== '0') return transaction;
+
   return withInventoryLock(async () => {
     const latest = await loadPendingTransaction(checkoutRequestId);
     if (latest.inventoryApplied) {
@@ -643,7 +683,8 @@ async function completeMpesaTransaction(checkoutRequestId, transaction) {
         const item = items.find(entry => String(entry.id) === String(line.itemId));
         if (!item) continue;
         item.quantity = Math.max(0, item.quantity - line.quantity);
-        if (item.status !== 'regular') item.status = item.quantity > 0 ? 'in-stock' : 'sold';
+        if (item.quantity === 0) item.status = 'sold';
+        else if (item.status !== 'regular') item.status = 'in-stock';
         changed = true;
       }
       if (changed) await writeItems(items);
@@ -689,6 +730,27 @@ async function getMpesaToken() {
   cachedMpesaToken = data.access_token;
   mpesaTokenExpiresAt = Date.now() + (Number(data.expires_in) - 60) * 1000;
   return cachedMpesaToken;
+}
+
+async function queryMpesaTransaction(checkoutRequestId, transaction) {
+  const token = await getMpesaToken();
+  const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+  const shortcode = transaction.businessShortCode || MPESA_SHORTCODE;
+  const password = Buffer.from(`${shortcode}${MPESA_PASSKEY}${timestamp}`).toString('base64');
+  const response = await fetch(`${MPESA_BASE_URL}/mpesa/stkpushquery/v1/query`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      BusinessShortCode: shortcode,
+      Password: password,
+      Timestamp: timestamp,
+      CheckoutRequestID: checkoutRequestId
+    })
+  });
+  return response.json();
 }
 
 async function storePendingTransaction(checkoutRequestId, data) {
@@ -859,8 +921,8 @@ app.post('/api/mpesa/callback', async (req, res) => {
       return res.json({ ResultCode: 0, ResultDesc: 'Accepted; transaction is not stored yet' });
     }
 
-    if (ResultCode === 0) {
-      await completeMpesaTransaction(CheckoutRequestID, transaction);
+    if (String(ResultCode) === '0') {
+      await completeMpesaTransaction(CheckoutRequestID, transaction, ResultCode);
     } else {
       await failMpesaTransaction(CheckoutRequestID, { ...transaction, error: ResultDesc });
     }
@@ -889,37 +951,18 @@ app.get('/api/mpesa/status/:checkoutRequestId', async (req, res) => {
   }
 
   try {
-    const token = await getMpesaToken();
-    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-    const shortcode = transaction.businessShortCode || MPESA_SHORTCODE;
-    const password = Buffer.from(`${shortcode}${MPESA_PASSKEY}${timestamp}`).toString('base64');
-    const queryRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpushquery/v1/query`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        BusinessShortCode: shortcode,
-        Password: password,
-        Timestamp: timestamp,
-        CheckoutRequestID: checkoutRequestId
-      })
-    });
-    const queryData = await queryRes.json();
+    const queryData = await queryMpesaTransaction(checkoutRequestId, transaction);
     if (String(queryData.ResultCode) === '0') {
-        await completeMpesaTransaction(checkoutRequestId, transaction);
+      await completeMpesaTransaction(checkoutRequestId, transaction, queryData.ResultCode);
       return res.json({ success: true, status: 'COMPLETED' });
     }
-    if (queryData.ResultCode && String(queryData.ResultCode) !== '1032' && String(queryData.ResultCode) !== '4999') {
-      const failedCodes = ['1032', '1037', '1', '2001', '1001'];
-      if (failedCodes.includes(String(queryData.ResultCode))) {
-        await failMpesaTransaction(checkoutRequestId, {
-          ...transaction,
-          error: queryData.ResultDesc || 'Payment cancelled or failed.'
-        });
-        return res.json({ success: false, status: 'FAILED', message: queryData.ResultDesc || 'Payment cancelled or failed.' });
-      }
+    const failedCodes = ['1032', '1037', '1', '2001', '1001'];
+    if (failedCodes.includes(String(queryData.ResultCode))) {
+      await failMpesaTransaction(checkoutRequestId, {
+        ...transaction,
+        error: queryData.ResultDesc || 'Payment cancelled or failed.'
+      });
+      return res.json({ success: false, status: 'FAILED', message: queryData.ResultDesc || 'Payment cancelled or failed.' });
     }
   } catch (err) {
     console.error('M-Pesa status query error:', err.message);
