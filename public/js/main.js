@@ -8,9 +8,12 @@ let sellerPhoneNumber = '254728074301';
 let allItems = [];
 let activeFilter = 'all';
 let searchQuery = '';
+let sortOrder = 'newest';
 let cart = JSON.parse(localStorage.getItem('shoe_cart') || '[]');
 let activeProduct = null;
 let lastFocusedElement = null;
+let activeGalleryImages = [];
+let activeGalleryIndex = 0;
 
 async function loadItems() {
   try {
@@ -67,6 +70,11 @@ function reconcileCartWithStock() {
 
 function render() {
   const items = allItems.filter(item => matchesFilter(item) && matchesSearch(item));
+  items.sort((first, second) => {
+    if (sortOrder === 'price-low') return parsePrice(first.price) - parsePrice(second.price);
+    if (sortOrder === 'price-high') return parsePrice(second.price) - parsePrice(first.price);
+    return (Number(second.createdAt) || 0) - (Number(first.createdAt) || 0);
+  });
   if (searchResultPopup) {
     searchResultPopup.textContent = searchQuery && items.length > 0
       ? `${items.length} ${items.length === 1 ? 'result' : 'results'} found`
@@ -131,6 +139,8 @@ function openProductModal(productId) {
   activeProduct = product;
   lastFocusedElement = document.activeElement;
   const images = getItemImages(product);
+  activeGalleryImages = images;
+  activeGalleryIndex = 0;
   const mainImage = document.getElementById('gallery-main-img');
   const thumbnails = document.getElementById('gallery-thumbnails');
   document.getElementById('modal-product-title').textContent = product.name || '';
@@ -173,10 +183,13 @@ function openProductModal(productId) {
 }
 
 function changeGalleryImage(images, index) {
+  if (!images.length) return;
+  activeGalleryImages = images;
+  activeGalleryIndex = (index + images.length) % images.length;
   const mainImage = document.getElementById('gallery-main-img');
-  mainImage.src = images[index];
+  mainImage.src = images[activeGalleryIndex];
   document.querySelectorAll('.thumb-button').forEach((button, buttonIndex) => {
-    button.classList.toggle('active', buttonIndex === index);
+    button.classList.toggle('active', buttonIndex === activeGalleryIndex);
   });
 }
 
@@ -349,11 +362,17 @@ function renderCartModal() {
 
 function setupCartUI() {
   const modal = document.getElementById('cart-modal');
-  document.getElementById('cart-btn').addEventListener('click', () => {
+  const cartButton = document.getElementById('cart-btn');
+  cartButton.addEventListener('click', () => {
     renderCartModal();
     modal.classList.add('active');
   });
   document.getElementById('close-cart').addEventListener('click', () => modal.classList.remove('active'));
+  document.addEventListener('pointerdown', event => {
+    if (modal.classList.contains('active') && !modal.contains(event.target) && !cartButton.contains(event.target)) {
+      modal.classList.remove('active');
+    }
+  });
 }
 
 function escapeHtml(str) {
@@ -386,6 +405,24 @@ clearSearch.addEventListener('click', () => {
 });
 
 document.getElementById('close-product-modal').addEventListener('click', closeProductModal);
+let swipeStart = null;
+const mainImageWrapper = document.querySelector('.main-image-wrapper');
+mainImageWrapper.addEventListener('touchstart', event => {
+  if (event.touches.length !== 1) return;
+  swipeStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+}, { passive: true });
+mainImageWrapper.addEventListener('touchend', event => {
+  if (!swipeStart || event.changedTouches.length !== 1 || activeGalleryImages.length < 2) {
+    swipeStart = null;
+    return;
+  }
+  const deltaX = event.changedTouches[0].clientX - swipeStart.x;
+  const deltaY = event.changedTouches[0].clientY - swipeStart.y;
+  swipeStart = null;
+  if (Math.abs(deltaX) < 40 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+  const direction = deltaX < 0 ? 1 : -1;
+  changeGalleryImage(activeGalleryImages, activeGalleryIndex + direction);
+}, { passive: true });
 document.getElementById('product-modal').addEventListener('click', event => {
   if (event.target.id === 'product-modal') closeProductModal();
 });
@@ -402,8 +439,14 @@ filterBtns.forEach(button => {
   });
 });
 
+document.getElementById('sort-order').addEventListener('change', event => {
+  sortOrder = event.target.value;
+  render();
+});
+
 function parsePrice(value) {
-  return parseInt(String(value || '').replace(/[^0-9]/g, ''), 10) || 0;
+  const price = String(value || '').replace(/,/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
+  return price ? Math.round(Number(price[0])) : 0;
 }
 
 function formatKsh(amount) {
@@ -550,6 +593,7 @@ function showPaymentSuccess() {
     saveCart();
     updateCartCount();
   }
+  loadItems();
 }
 
 function setupMpesaUI() {

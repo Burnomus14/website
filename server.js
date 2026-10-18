@@ -149,6 +149,13 @@ function parseStockQuantity(value) {
   return Number.isSafeInteger(quantity) && quantity >= 0 ? quantity : null;
 }
 
+function parseCatalogPrice(value) {
+  const match = String(value ?? '').replace(/,/g, '').match(/[0-9]+(?:\.[0-9]+)?/);
+  if (!match) return null;
+  const price = Number(match[0]);
+  return Number.isFinite(price) && price > 0 ? Math.round(price) : null;
+}
+
 function readItems() {
   if (!fs.existsSync(DATA_FILE)) return [];
   const raw = fs.readFileSync(DATA_FILE, 'utf-8');
@@ -593,13 +600,15 @@ async function reserveInventory(itemLines) {
     const items = await readCatalogItems();
     for (const line of itemLines) {
       const item = items.find(entry => String(entry.id) === line.itemId);
-      if (!item || item.status !== 'in-stock') {
+      if (!item || item.status !== 'in-stock' || item.quantity < 1) {
         throw new Error(`${line.itemName} is no longer in stock.`);
       }
       if (line.quantity > item.quantity - reservedQuantity(line.itemId)) {
         throw new Error(`Only ${Math.max(0, item.quantity - reservedQuantity(line.itemId))} ${line.itemName} available.`);
       }
       line.itemName = item.name;
+      line.unitAmount = parseCatalogPrice(item.price);
+      if (!line.unitAmount) throw new Error(`${item.name} does not have a valid price.`);
     }
     const reservationId = crypto.randomUUID();
     inventoryReservations.set(reservationId, itemLines);
@@ -707,15 +716,15 @@ async function loadPendingTransaction(checkoutRequestId) {
 
 // ---- M-Pesa Endpoints ----
 app.post('/api/mpesa/stkpush', async (req, res) => {
-  const { phoneNumber, amount, itemName, customerName, itemId, itemLines: rawItemLines } = req.body;
+  const { phoneNumber, itemName, customerName, itemId, itemLines: rawItemLines } = req.body;
   if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET || !MPESA_PASSKEY || !MPESA_CALLBACK_URL) {
     return res.status(503).json({
       success: false,
       message: 'M-Pesa checkout is not configured. Set the Daraja credentials and public callback URL.'
     });
   }
-  if (!phoneNumber || !amount) {
-    return res.status(400).json({ success: false, message: 'Phone number and amount are required.' });
+  if (!phoneNumber) {
+    return res.status(400).json({ success: false, message: 'Phone number is required.' });
   }
 
   const phone = formatMpesaPhone(phoneNumber);
@@ -723,7 +732,6 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid Kenyan phone number. Use 07XXXXXXXX or 254XXXXXXXXX.' });
   }
 
-  const numericAmount = Math.max(1, Math.round(Number(String(amount).replace(/[^0-9.]/g, '')) || 1));
   if (!Array.isArray(rawItemLines) || rawItemLines.length === 0 || rawItemLines.length > 50) {
     return res.status(400).json({ success: false, message: 'A valid list of items is required for checkout.' });
   }
@@ -742,6 +750,10 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
   let reservationId;
   try {
     reservationId = await reserveInventory(itemLines);
+    const numericAmount = itemLines.reduce((total, line) => total + line.unitAmount * line.quantity, 0);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount < 1) {
+      throw new Error('The checkout total is invalid. Please check the item prices.');
+    }
     const token = await getMpesaToken();
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
 
@@ -758,8 +770,8 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
       PartyB: shortcodeToUse,
       PhoneNumber: phone,
       CallBackURL: MPESA_CALLBACK_URL,
-      AccountReference: 'TheCollection',
-      TransactionDesc: `Pay for ${itemName || 'Order'}`
+      AccountReference: 'Collection',
+      TransactionDesc: 'Collection'
     };
 
     let stkRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
