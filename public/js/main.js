@@ -127,7 +127,7 @@ function render() {
 
 function statusLabel(status) {
   if (status === 'in-stock') return 'In stock';
-  if (status === 'sold') return 'Sold';
+  if (status === 'sold') return 'Sold out';
   return 'In the archive';
 }
 
