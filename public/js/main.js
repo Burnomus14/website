@@ -73,6 +73,8 @@ function render() {
   items.sort((first, second) => {
     if (sortOrder === 'price-low') return parsePrice(first.price) - parsePrice(second.price);
     if (sortOrder === 'price-high') return parsePrice(second.price) - parsePrice(first.price);
+    if (sortOrder === 'name-asc') return (first.name || '').localeCompare(second.name || '', undefined, { sensitivity: 'base' });
+    if (sortOrder === 'name-desc') return (second.name || '').localeCompare(first.name || '', undefined, { sensitivity: 'base' });
     return (Number(second.createdAt) || 0) - (Number(first.createdAt) || 0);
   });
   if (searchResultPopup) {
