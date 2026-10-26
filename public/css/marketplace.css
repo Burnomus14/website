@@ -72,4 +72,6 @@
   .marketplace-inline-form { grid-template-columns: 1fr; }
   .marketplace-form-grid { grid-template-columns: 1fr; }
   .marketplace-form-grid .span-all { grid-column: auto; }
+  .marketplace-tabs { max-width: 100%; overscroll-behavior-inline: contain; }
+  .marketplace-tab { padding-inline: 12px; }
 }
