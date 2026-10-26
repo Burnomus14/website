@@ -67,7 +67,7 @@
         <button class="marketplace-tab" type="button" data-panel="wishlistPanel">Saved pieces</button>
         <button class="marketplace-tab" type="button" data-panel="addressesPanel">Addresses</button>
         <button class="marketplace-tab" type="button" data-panel="sellerPanel" data-role-tab="seller" hidden>Seller</button>
-        <button class="marketplace-tab" type="button" data-panel="shipperPanel" data-role-tab="shipper" hidden>Delivery</button>
+        <button class="marketplace-tab" type="button" data-panel="shipperPanel" data-role-tab="shipper" hidden>Delivery <span class="tab-badge-soon">Coming Soon</span></button>
         <button class="marketplace-tab" type="button" data-panel="adminPanel" data-role-tab="admin" hidden>Management</button>
       </nav>
 
@@ -148,12 +148,31 @@
       </section>
 
       <section class="marketplace-content-panel" id="shipperPanel" hidden>
-        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">LAST MILE</p><h3>Deliveries in your area</h3></div></div>
+        <div class="marketplace-section-heading">
+          <div>
+            <p class="marketplace-eyebrow">SHIPPER PLATFORM · COMING SOON</p>
+            <h3>Deliveries in your area</h3>
+          </div>
+          <span class="marketplace-badge-coming-soon">Coming Soon</span>
+        </div>
+        <div class="shipper-coming-soon-card">
+          <div class="shipper-coming-soon-icon">🚚</div>
+          <div class="shipper-coming-soon-body">
+            <h4>Shipper Platform is Coming Soon</h4>
+            <p>Our dedicated delivery partner dispatch and tracking platform is currently under construction and non-functional at the moment. Deliveries cannot be processed through this panel right now.</p>
+          </div>
+        </div>
         <div class="marketplace-record-list" id="shipperOrdersList"></div>
       </section>
 
       <section class="marketplace-content-panel" id="adminPanel" hidden>
-        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">CONTROL ROOM</p><h3>Marketplace management</h3></div></div>
+        <div class="marketplace-section-heading">
+          <div>
+            <p class="marketplace-eyebrow">CONTROL ROOM</p>
+            <h3>Marketplace management</h3>
+          </div>
+          <a href="/admin-marketplace.html" class="btn ghost">Open in Admin Panel Tab →</a>
+        </div>
         <div class="marketplace-stats" id="marketplaceStats"></div>
         <div class="marketplace-section-heading marketplace-subheading"><div><p class="marketplace-eyebrow">ACCESS</p><h3>Accounts and roles</h3></div></div>
         <div class="marketplace-record-list" id="usersList"></div>

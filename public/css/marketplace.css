@@ -67,3 +67,125 @@
   .marketplace-form-grid { grid-template-columns: 1fr; }
   .marketplace-form-grid .span-all { grid-column: auto; }
 }
+
+/* Shipper platform coming soon & WhatsApp tracking styles */
+.tab-badge-soon {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #2b2210;
+  border: 1px solid #755a1b;
+  color: #e0b87a;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  vertical-align: middle;
+}
+
+.marketplace-badge-coming-soon {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: #2b2210;
+  border: 1px solid #755a1b;
+  color: #e0b87a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 600;
+}
+
+.shipper-coming-soon-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px;
+  border: 1px dashed #66501a;
+  background: #141108;
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+}
+
+.shipper-coming-soon-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.shipper-coming-soon-body h4 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-family: var(--font-display);
+  color: #e0b87a;
+}
+
+.shipper-coming-soon-body p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.btn-whatsapp-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #142818;
+  border: 1px solid #25d366;
+  color: #25d366;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.btn-whatsapp-track:hover {
+  background: #25d366;
+  color: #000;
+}
+
+.marketplace-order-line-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.marketplace-order-line-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tracking-status-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--ink);
+  background: #141414;
+}
+
+.tracking-status-badge.pending {
+  border-color: #66501a;
+  color: #e0b87a;
+}
+
+.tracking-status-badge.shipped {
+  border-color: #1f4e79;
+  color: #6bb5ff;
+}
+
+.tracking-status-badge.delivered {
+  border-color: #1e5a28;
+  color: #52c41a;
+}

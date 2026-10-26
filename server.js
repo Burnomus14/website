@@ -59,6 +59,8 @@ const passwordResetRequests = new Map();
 const localAdmins = new Map();
 localAdmins.set('admin', {
   username: 'admin',
+  role: 'admin',
+  title: 'admin',
   password: ADMIN_PASSWORD,
   email: 'nsmskipruto@gmail.com'
 });
@@ -321,6 +323,8 @@ async function ensureAdminExists() {
     if (snapshot.empty) {
       await adminsRef.doc('main_admin').set({
         username: 'admin',
+        role: 'admin',
+        title: 'admin',
         password: hashAdminPassword(ADMIN_PASSWORD),
         email: 'nsmskipruto@gmail.com'
       });
@@ -413,6 +417,44 @@ app.post('/api/admin/password-reset/request', async (req, res) => {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
+
+  // Find admin account locally or in Firestore
+  const localAdmin = [...localAdmins.values()].find(admin =>
+    String(admin.email || '').trim().toLowerCase() === email
+  );
+
+  let adminDoc = null;
+  let adminData = localAdmin || null;
+
+  if (db) {
+    try {
+      const adminsSnapshot = await db.collection('admins').get();
+      adminDoc = adminsSnapshot.docs.find(doc =>
+        String(doc.data().email || '').trim().toLowerCase() === email
+      );
+      if (adminDoc) {
+        adminData = { ...adminDoc.data(), ref: adminDoc.ref };
+      }
+    } catch (err) {
+      console.warn('Could not read admins collection:', err.message);
+    }
+  }
+
+  // Restrict password reset ONLY to emails that have the admin title
+  const hasAdminTitle = Boolean(adminData) && (
+    email.includes('admin') ||
+    String(adminData.title || '').trim().toLowerCase() === 'admin' ||
+    String(adminData.role || '').trim().toLowerCase() === 'admin' ||
+    String(adminData.username || '').trim().toLowerCase() === 'admin'
+  );
+
+  if (!hasAdminTitle) {
+    return res.status(403).json({
+      success: false,
+      message: 'Password reset links can only be sent to emails with the admin title.'
+    });
+  }
+
   if (!db || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
     return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
   }
@@ -426,15 +468,12 @@ app.post('/api/admin/password-reset/request', async (req, res) => {
   passwordResetRequests.set(requestIp, [...recentRequests, now]);
 
   try {
-    const adminsSnapshot = await db.collection('admins').get();
-    const adminDoc = adminsSnapshot.docs.find(doc =>
-      String(doc.data().email || '').trim().toLowerCase() === email
-    );
-    const genericResponse = {
-      success: true,
-      message: 'If this email is registered as an admin, a password reset link will be sent.'
-    };
-    if (!adminDoc) return res.status(202).json(genericResponse);
+    if (!adminDoc) {
+      return res.status(403).json({
+        success: false,
+        message: 'Password reset links can only be sent to emails with the admin title.'
+      });
+    }
 
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -468,7 +507,10 @@ app.post('/api/admin/password-reset/request', async (req, res) => {
       });
       console.error('Password reset email provider returned:', emailResponse.status);
     }
-    return res.status(202).json(genericResponse);
+    return res.status(200).json({
+      success: true,
+      message: 'A password reset link has been sent to your admin email.'
+    });
   } catch (error) {
     console.error('Password reset request failed:', error.message);
     return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });

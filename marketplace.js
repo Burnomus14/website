@@ -668,6 +668,10 @@ function createMarketplace({
   });
 
   router.patch('/orders/:orderId/items/:itemId/deliver', authenticate, requireRole('shipper', 'admin'), async (req, res) => {
+    return res.status(503).json({
+      success: false,
+      message: 'The shipper platform is coming soon and is currently non-functional.'
+    });
     const orders = await listRecords('orders');
     const order = orders.find(record => record.id === req.params.orderId);
     const item = order?.items.find(record => record.id === req.params.itemId);

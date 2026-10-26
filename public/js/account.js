@@ -9,6 +9,16 @@ let adminSessionMode = false;
 let savedAddresses = [];
 let currentAccountCart = [];
 let sellerProducts = [];
+let sellerPhoneNumber = '254728074301';
+async function fetchSellerConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const data = await res.json();
+    if (data.sellerPhone) sellerPhoneNumber = data.sellerPhone;
+  } catch {}
+}
+fetchSellerConfig();
+
 
 function escapeHtml(value) {
   const element = document.createElement('span');
@@ -163,13 +173,28 @@ async function loadOrders() {
           <p>${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address supplied')}</p>
           <div class="marketplace-order-lines">${order.items.map(item => `
             <div class="marketplace-order-line">
-              <p><strong>${escapeHtml(item.name)}</strong> · Qty ${Number(item.quantity)} · ${escapeHtml(item.status)}</p>
-              ${adminSessionMode || marketplaceUser.roles.includes('admin') || marketplaceUser.roles.includes('seller') && item.sellerId === marketplaceUser.id
-                ? `<div class="marketplace-record-actions">
+              <div class="marketplace-order-line-content">
+                <div class="marketplace-order-line-info">
+                  <p><strong>${escapeHtml(item.name)}</strong> · Qty ${Number(item.quantity)} · <span class="tracking-status-badge ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></p>
+                </div>
+                <button class="btn btn-whatsapp-track" type="button" data-action="whatsapp-track-item"
+                  data-order-id="${escapeHtml(order.id)}"
+                  data-item-name="${escapeHtml(item.name)}"
+                  data-item-qty="${Number(item.quantity)}"
+                  data-item-status="${escapeHtml(item.status)}"
+                  data-recipient="${escapeHtml(order.address?.recipient || order.customerName || '')}"
+                  data-phone="${escapeHtml(order.phoneNumber || order.address?.phone || '')}"
+                  data-destination="${escapeHtml(order.address ? `${order.address.city}, ${order.address.state}` : '')}"
+                  title="Push order to WhatsApp for quick response from seller">
+                  💬 WhatsApp Seller
+                </button>
+              </div>
+              ${adminSessionMode || marketplaceUser.roles.includes('admin') || (marketplaceUser.roles.includes('seller') && item.sellerId === marketplaceUser.id)
+                ? `<div class="marketplace-record-actions" style="margin-top:8px;">
                     ${item.status === 'pending' && (marketplaceUser.roles.includes('seller') || marketplaceUser.roles.includes('admin'))
                       ? `<button class="btn ghost" type="button" data-action="ship" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark shipped</button>` : ''}
                     ${item.status === 'shipped' && (marketplaceUser.roles.includes('shipper') || marketplaceUser.roles.includes('admin'))
-                      ? `<button class="btn ghost" type="button" data-action="deliver" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark delivered</button>` : ''}
+                      ? `<button class="btn ghost" type="button" disabled title="Shipper platform is coming soon" style="opacity:0.5; cursor:not-allowed;">Mark delivered (Coming Soon)</button>` : ''}
                   </div>` : ''}
             </div>`).join('')}</div>
         </div>
@@ -182,7 +207,7 @@ async function loadOrders() {
     sellerOrders.innerHTML = container.innerHTML;
   }
   if (shipperOrders && (marketplaceUser.roles.includes('shipper') || marketplaceUser.roles.includes('admin'))) {
-    shipperOrders.innerHTML = container.innerHTML;
+    shipperOrders.innerHTML = '<div class="marketplace-empty">The shipper platform is coming soon and is non-functional at the moment. Deliveries and dispatches are paused.</div>';
   }
 }
 
@@ -544,9 +569,34 @@ async function handleRecordAction(event) {
         await loadOrders();
         break;
       case 'deliver':
-        await api(`/orders/${encodeURIComponent(button.dataset.orderId)}/items/${encodeURIComponent(button.dataset.itemId)}/deliver`, { method: 'PATCH' });
-        await loadOrders();
+        showToast('The shipper platform is coming soon and is currently non-functional.');
         break;
+      case 'whatsapp-track-item': {
+        const orderId = button.dataset.orderId || '';
+        const itemName = button.dataset.itemName || '';
+        const itemQty = button.dataset.itemQty || '1';
+        const itemStatus = button.dataset.itemStatus || 'pending';
+        const recipient = button.dataset.recipient || '';
+        const destination = button.dataset.destination || '';
+
+        const msgLines = [
+          'Hello! I would like to track my order from The Collection:',
+          '',
+          `• Order ID: #${orderId.slice(0, 10)}`,
+          `• Item: ${itemName}`,
+          `• Quantity: ${itemQty}`,
+          `• Tracking Status: ${itemStatus}`
+        ];
+        if (recipient) msgLines.push(`• Recipient: ${recipient}`);
+        if (destination) msgLines.push(`• Delivery Destination: ${destination}`);
+        msgLines.push('', 'Could you please assist with an update on this delivery? Thank you!');
+
+        const text = msgLines.join('\n');
+        const phone = sellerPhoneNumber || '254728074301';
+        const url = `https://api.whatsapp.com/send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+        break;
+      }
       default:
         break;
     }
