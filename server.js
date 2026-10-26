@@ -758,16 +758,17 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
     let marketplaceUser = null;
     let deliveryAddress = null;
     const accountToken = req.headers['x-marketplace-token'] || req.headers['x-auth-token'];
-    if (accountToken) {
-      marketplaceUser = await marketplace.resolveUserToken(accountToken);
-      if (!marketplaceUser) {
-        return res.status(401).json({ success: false, message: 'Your account session has expired. Sign in again to place a tracked order.' });
-      }
-      if (req.body.addressId) {
-        deliveryAddress = await marketplace.findAddress(marketplaceUser.id, String(req.body.addressId));
-        if (!deliveryAddress) {
-          return res.status(400).json({ success: false, message: 'Choose a valid saved delivery address.' });
-        }
+    if (!accountToken) {
+      return res.status(401).json({ success: false, message: 'Create an account or sign in before checkout so you can track your order.' });
+    }
+    marketplaceUser = await marketplace.resolveUserToken(accountToken);
+    if (!marketplaceUser) {
+      return res.status(401).json({ success: false, message: 'Sign in with your verified marketplace account before checkout.' });
+    }
+    if (req.body.addressId) {
+      deliveryAddress = await marketplace.findAddress(marketplaceUser.id, String(req.body.addressId));
+      if (!deliveryAddress) {
+        return res.status(400).json({ success: false, message: 'Choose a valid saved delivery address.' });
       }
     }
     if (!deliveryAddress && req.body.deliveryAddress && typeof req.body.deliveryAddress === 'object') {
