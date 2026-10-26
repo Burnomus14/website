@@ -623,6 +623,7 @@ function formatKsh(amount) {
 let currentCheckout = null;
 let mpesaPollTimer = null;
 let paymentSuccessRedirectTimer = null;
+const pendingCheckoutKey = 'pendingMarketplaceCheckout';
 
 function checkoutCartWithMpesa() {
   reconcileCartWithStock();
@@ -646,8 +647,21 @@ function checkoutCartWithMpesa() {
   });
 }
 
-function startMpesaCheckout(order) {
-  currentCheckout = order;
+async function startMpesaCheckout(order) {
+  let accountToken;
+  try {
+    accountToken = await getMarketplaceToken();
+  } catch (error) {
+    showToast(error.message || 'Could not check your account. Please try again.');
+    return;
+  }
+  if (!accountToken) {
+    sessionStorage.setItem(pendingCheckoutKey, JSON.stringify(order));
+    window.location.assign('/account.html?checkout=signin');
+    return;
+  }
+  currentCheckout = { ...order, trackedOrder: true };
+  sessionStorage.removeItem(pendingCheckoutKey);
   const modal = document.getElementById('mpesaCheckoutModal');
   document.getElementById('mpesaOrderTitle').textContent = order.itemName;
   document.getElementById('mpesaOrderPrice').textContent = formatKsh(order.amount);
@@ -721,9 +735,14 @@ async function submitMpesaCheckout(event) {
   submitBtn.textContent = 'Sending prompt...';
   try {
     const accountToken = await getMarketplaceToken();
-    currentCheckout.trackedOrder = Boolean(accountToken);
+    if (!accountToken) {
+      sessionStorage.setItem(pendingCheckoutKey, JSON.stringify(currentCheckout));
+      window.location.assign('/account.html?checkout=signin');
+      return;
+    }
+    currentCheckout.trackedOrder = true;
     const headers = { 'Content-Type': 'application/json' };
-    if (accountToken) headers['x-marketplace-token'] = accountToken;
+    headers['x-marketplace-token'] = accountToken;
     const res = await fetch('/api/mpesa/stkpush', {
       method: 'POST',
       headers,
@@ -849,7 +868,24 @@ async function prepareCheckoutAddresses() {
   }
 }
 
+function resumePendingCheckout() {
+  if (new URLSearchParams(window.location.search).get('resumeCheckout') !== '1') return;
+  const pendingCheckout = sessionStorage.getItem(pendingCheckoutKey);
+  if (!pendingCheckout) return;
+  try {
+    const order = JSON.parse(pendingCheckout);
+    if (!order || !Array.isArray(order.itemLines) || !order.itemLines.length) {
+      throw new Error('The saved checkout details are invalid.');
+    }
+    startMpesaCheckout(order).catch(error => showToast(error.message));
+  } catch (error) {
+    sessionStorage.removeItem(pendingCheckoutKey);
+    showToast(error.message || 'Could not restore your checkout. Please try again.');
+  }
+}
+
 setupCartUI();
 setupMpesaUI();
 updateCartCount();
 loadItems();
+resumePendingCheckout();

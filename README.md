@@ -49,7 +49,7 @@ Marketplace data uses Firestore when Firebase credentials are configured. It is 
 
 Existing marketplace passwords cannot be imported into Firebase. Customers with an older account should use **Forgot password?** to set a Firebase password; their saved account data and role are retained.
 
-The browser signs customers in with Firebase Authentication ID tokens, which the server verifies before account operations. Admin pages continue using short-lived in-memory admin sessions after Firebase sign-in. Paid M-Pesa checkouts create order records for signed-in customers and guest purchases alike, but only signed-in customers can view their order history.
+The browser signs customers in with Firebase Authentication ID tokens, which the server verifies before account operations. Admin pages continue using short-lived in-memory admin sessions after Firebase sign-in. Customers must create an account and sign in before M-Pesa checkout; checkout started while signed out resumes after sign-in. Each confirmed payment creates an order linked to that account, and the customer is redirected to order tracking.
 
 ## How it works
 

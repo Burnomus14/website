@@ -14,6 +14,7 @@ const authForm = document.getElementById('authForm');
 const authMessage = document.getElementById('authMessage');
 const pendingRegistrationKey = 'pendingMarketplaceRegistration';
 const verifiedAccountEmailKey = 'verifiedAccountEmail';
+const pendingCheckoutKey = 'pendingMarketplaceCheckout';
 let marketplaceUser = null;
 let registrationMode = false;
 let adminSessionMode = false;
@@ -134,6 +135,12 @@ function renderAccount() {
     document.getElementById('ordersPanel').scrollIntoView({ block: 'start' });
   }
   loadAccountData().catch(error => showToast(error.message));
+}
+
+function continuePendingCheckout() {
+  if (!auth.currentUser || !sessionStorage.getItem(pendingCheckoutKey)) return false;
+  window.location.assign('/?resumeCheckout=1');
+  return true;
 }
 
 async function loadAccountData() {
@@ -410,6 +417,7 @@ async function handleAuthSubmit(event) {
     marketplaceUser = result.user;
     adminSessionMode = false;
     renderAccount();
+    continuePendingCheckout();
   } catch (error) {
     showMessage(authMessage, registrationMode ? error.message : getSignInErrorMessage(error), true);
   }
@@ -684,7 +692,12 @@ async function initializeAccount() {
     document.querySelector('#authForm [name="identifier"]').value = verifiedEmail;
     sessionStorage.removeItem(verifiedAccountEmailKey);
   }
-  if (!currentUser && !adminToken) return;
+  if (!currentUser && !adminToken) {
+    if (new URLSearchParams(window.location.search).get('checkout') === 'signin') {
+      showMessage(authMessage, 'Create an account or sign in before checkout. Your checkout will resume after you sign in.');
+    }
+    return;
+  }
   try {
     if (currentUser) {
       if (await finishVerifiedRegistration(currentUser)) return;
@@ -699,6 +712,7 @@ async function initializeAccount() {
     marketplaceUser = result.user;
     adminSessionMode = !currentUser && Boolean(adminToken);
     renderAccount();
+    continuePendingCheckout();
   } catch (error) {
     if (error.status === 401 && adminToken) localStorage.removeItem('adminToken');
     authPanel.hidden = false;
