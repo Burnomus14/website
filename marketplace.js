@@ -5,6 +5,7 @@ const path = require('path');
 
 function createMarketplace({
   db,
+  firebaseAuth,
   dataDir,
   adminSessions,
   readCatalogItems,
@@ -78,21 +79,6 @@ function createMarketplace({
     }
   }
 
-  function hashPassword(password) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-    return `scrypt$${salt}$${hash}`;
-  }
-
-  function verifyPassword(stored, password) {
-    if (typeof stored !== 'string') return false;
-    const [scheme, salt, encodedHash] = stored.split('$');
-    if (scheme !== 'scrypt' || !salt || !/^[a-f0-9]{128}$/i.test(encodedHash || '')) return false;
-    const expected = Buffer.from(encodedHash, 'hex');
-    const actual = crypto.scryptSync(password, salt, 64);
-    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-  }
-
   function publicUser(user) {
     const { passwordHash, ...safe } = user;
     return safe;
@@ -100,19 +86,36 @@ function createMarketplace({
 
   async function getUser(userId) {
     const users = await listRecords('users');
-    return users.find(user => user.id === userId && !user.isRestricted) || null;
+    const user = users.find(record =>
+      (record.id === userId || record.firebaseUid === userId) && !record.isRestricted
+    ) || null;
+    if (user?.firebaseUid && user.passwordHash) {
+      delete user.passwordHash;
+      await saveRecord('users', user);
+    }
+    return user;
   }
 
   async function resolveUserToken(token) {
     if (!token) return null;
     const userId = sessions.get(token);
-    if (!userId) return null;
-    const user = await getUser(userId);
-    if (!user) {
-      sessions.delete(token);
-      return null;
+    if (userId) {
+      const user = await getUser(userId);
+      if (!user) sessions.delete(token);
+      return user;
     }
-    return user;
+    if (!firebaseAuth) return null;
+    try {
+      const decodedToken = await firebaseAuth.verifyIdToken(token);
+      if (!decodedToken.email_verified) return null;
+      return await getUser(decodedToken.uid);
+    } catch (error) {
+      if (error.code === 'auth/argument-error' || error.code === 'auth/id-token-expired' ||
+          error.code === 'auth/invalid-id-token' || error.code === 'auth/invalid-argument') {
+        return null;
+      }
+      throw error;
+    }
   }
 
   async function authenticate(req, res, next) {
@@ -210,49 +213,59 @@ function createMarketplace({
   }
 
   router.post('/auth/register', async (req, res) => {
+    if (!firebaseAuth || !db) {
+      return res.status(503).json({ success: false, message: 'Account registration is temporarily unavailable.' });
+    }
+    let decodedToken;
+    try {
+      decodedToken = await firebaseAuth.verifyIdToken(req.headers['x-marketplace-token']);
+    } catch (error) {
+      if (error.code === 'auth/argument-error' || error.code === 'auth/id-token-expired' ||
+          error.code === 'auth/invalid-id-token' || error.code === 'auth/invalid-argument') {
+        return res.status(401).json({ success: false, message: 'Sign in and verify your email to continue.' });
+      }
+      throw error;
+    }
+    if (!decodedToken.email_verified) {
+      return res.status(403).json({ success: false, message: 'Verify your email address before continuing.' });
+    }
     const firstName = cleanText(req.body.firstName, 80);
     const lastName = cleanText(req.body.lastName, 80);
     const username = cleanText(req.body.username, 40);
-    const email = cleanText(req.body.email, 254).toLowerCase();
-    const password = typeof req.body.password === 'string' ? req.body.password : '';
-    if (!firstName || !lastName || !username || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-        password.length < 10 || password.length > 128) {
-      return res.status(400).json({ success: false, message: 'Enter your name, username, valid email, and a password of at least 10 characters.' });
+    const email = cleanText(decodedToken.email, 254).toLowerCase();
+    if (!firstName || !lastName || !username || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, message: 'Enter your first name, last name, and username.' });
     }
     const users = await listRecords('users');
-    if (users.some(user => user.email.toLowerCase() === email || user.username.toLowerCase() === username.toLowerCase())) {
-      return res.status(409).json({ success: false, message: 'That email or username is already registered.' });
+    const linkedUser = users.find(user => user.firebaseUid === decodedToken.uid || user.id === decodedToken.uid);
+    const legacyUser = users.find(user => String(user.email || '').toLowerCase() === email);
+    const user = linkedUser || legacyUser;
+    if (user?.isRestricted) {
+      return res.status(403).json({ success: false, message: 'This account is restricted. Contact the store administrator.' });
     }
-    const user = {
-      id: makeId(),
-      username,
-      email,
-      firstName,
-      lastName,
-      passwordHash: hashPassword(password),
+    if (legacyUser?.firebaseUid && legacyUser.firebaseUid !== decodedToken.uid) {
+      return res.status(409).json({ success: false, message: 'This email is linked to a different sign-in account. Use password recovery.' });
+    }
+    if (users.some(candidate => candidate.id !== user?.id &&
+        String(candidate.username || '').toLowerCase() === username.toLowerCase())) {
+      return res.status(409).json({ success: false, message: 'That username is already registered.' });
+    }
+    const updatedUser = user || {
+      id: decodedToken.uid,
       roles: ['customer'],
       isRestricted: false,
       sellerApplication: null,
       createdAt: Date.now()
     };
-    await saveRecord('users', user);
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, user.id);
-    res.status(201).json({ success: true, token, user: publicUser(user) });
-  });
-
-  router.post('/auth/login', async (req, res) => {
-    const identifier = cleanText(req.body.identifier, 254).toLowerCase();
-    const password = typeof req.body.password === 'string' ? req.body.password : '';
-    const users = await listRecords('users');
-    const user = users.find(candidate => candidate.email.toLowerCase() === identifier ||
-      candidate.username.toLowerCase() === identifier);
-    if (!user || user.isRestricted || !verifyPassword(user.passwordHash, password)) {
-      return res.status(401).json({ success: false, message: 'Invalid sign-in details.' });
-    }
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, user.id);
-    res.json({ success: true, token, user: publicUser(user) });
+    updatedUser.firebaseUid = decodedToken.uid;
+    updatedUser.username = username;
+    updatedUser.email = email;
+    updatedUser.firstName = firstName;
+    updatedUser.lastName = lastName;
+    delete updatedUser.passwordHash;
+    const savedUser = updatedUser;
+    await saveRecord('users', savedUser);
+    res.status(user ? 200 : 201).json({ success: true, user: publicUser(savedUser) });
   });
 
   router.get('/auth/me', authenticate, (req, res) => {

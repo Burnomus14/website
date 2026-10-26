@@ -1,3 +1,6 @@
+import { signOut } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { auth } from './firebase.js';
+
 const adminWrap = document.getElementById('adminWrap');
 const logoutBtn = document.getElementById('logoutBtn');
 
@@ -66,9 +69,12 @@ function showToast(msg) {
 logoutBtn.addEventListener('click', async () => {
   try {
     await authedFetch('/api/logout', { method: 'POST' });
-  } catch {}
+  } catch (error) {
+    console.error('Admin sign-out failed:', error);
+  }
   token = null;
   localStorage.removeItem('adminToken');
+  await signOut(auth);
   window.location.href = '/admin-login.html';
 });
 

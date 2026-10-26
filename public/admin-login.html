@@ -10,7 +10,7 @@
         h2 { margin-top: 0; text-align: center; }
         .form-group { margin-bottom: 1rem; }
         label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
-        input[type="text"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input[type="email"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         .toggle-container { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.9rem; cursor: pointer; }
         .toggle-container input { width: auto; margin: 0; cursor: pointer; }
         button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 10px; }
@@ -27,8 +27,8 @@
         <h2>Admin Portal</h2>
         <form id="loginForm">
             <div class="form-group">
-                <label for="username">Username or Email</label>
-                <input type="text" id="username" required placeholder="Enter username or email" autocomplete="username" autocapitalize="none" spellcheck="false">
+                <label for="username">Email</label>
+                <input type="email" id="username" required placeholder="Enter admin email" autocomplete="username" autocapitalize="none" spellcheck="false">
             </div>
             <div class="form-group">
                 <label for="password">Password</label>
@@ -39,13 +39,16 @@
             </div>
             <button type="submit">Sign In</button>
             <div class="links">
-                <a href="/reset-password.html">Forgot Password?</a>
+                <a href="/reset-password.html?type=admin">Forgot Password?</a>
             </div>
             <div id="errorMsg" class="error" role="alert" aria-live="polite"></div>
         </form>
     </div>
 
-    <script>
+    <script type="module">
+        import { sendEmailVerification, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { auth } from '/js/firebase.js';
+
         const passwordInput = document.getElementById('password');
         const togglePassword = document.getElementById('togglePassword');
 
@@ -55,16 +58,22 @@
 
         document.getElementById('loginForm').addEventListener('submit', async (event) => {
             event.preventDefault();
-            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
             const errorMsg = document.getElementById('errorMsg');
             errorMsg.textContent = '';
 
             try {
-                const response = await fetch('/api/admin/login', {
+                const credential = await signInWithEmailAndPassword(auth, email, password);
+                if (!credential.user.emailVerified) {
+                    await sendEmailVerification(credential.user);
+                    throw new Error('Verify your email using the link we sent, then sign in again.');
+                }
+
+                const response = await fetch('/api/admin/session', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ idToken: await credential.user.getIdToken() })
                 });
                 const data = await response.json();
                 if (!response.ok || !data.success || !data.token) {
