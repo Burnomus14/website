@@ -1,6 +1,6 @@
 # The Collection
 
-An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, shipper fulfillment, and a password-protected admin panel.
+An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, a coming-soon shipper platform, and a password-protected admin panel.
 
 ## Setup (in VS Code)
 
@@ -18,10 +18,11 @@ An AMOLED black/white catalog and marketplace for your shoe and clothes collecti
    - Gallery: http://localhost:3000
    - Customer and marketplace accounts: http://localhost:3000/account.html
    - Admin panel: http://localhost:3000/admin.html
+   - Marketplace administration: http://localhost:3000/admin-marketplace.html
 
 The local `.env` file contains the server port and seller WhatsApp number. It is ignored by Git and should never be committed.
 
-Customer and admin password reset emails are sent directly by Firebase Authentication; no external email provider is required. Reset requests return a generic response so they do not reveal whether an email belongs to an account. Enable **Email/Password** in Firebase Authentication and add the deployed site's domain to its authorized domains. Firebase's password reset email template and delivery limits apply.
+Customer and admin password reset emails are sent directly by Firebase Authentication; no external email provider is required. Customer reset requests return a generic response. Admin reset links are sent only to admin records whose title is `admin`. Enable **Email/Password** in Firebase Authentication and add the deployed site's domain to its authorized domains. Firebase's password reset email template and delivery limits apply.
 
 If sign-in reports an invalid email/password, first check the email and password carefully. Accounts created before Firebase Authentication was enabled can use **Forgot password?** once to set a Firebase password; their saved marketplace data is retained. Password recovery requires Firebase Admin credentials on the server to link older marketplace profiles. Confirm the site uses the same Firebase project configured in `public/js/firebase.js`, and that its domain is listed under Firebase Authentication's authorized domains.
 
@@ -43,7 +44,7 @@ Create an app in the Safaricom Daraja portal to obtain the consumer key and secr
 
 ## Marketplace accounts and roles
 
-Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Customer and admin passwords are managed by Firebase Authentication; account profiles and marketplace roles remain in Firestore. Email verification is required before sign-in. Customers can apply to become sellers; an admin approves seller, shipper, and additional admin roles from **Marketplace** in the admin panel or account page. Sellers manage their own products and shipping queue, while shippers only receive orders assigned to their configured delivery area.
+Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Tracking entries can be pushed to WhatsApp for a quicker response from the seller. Customer and admin passwords are managed by Firebase Authentication; account profiles and marketplace roles remain in Firestore. Email verification is required before sign-in. Customers can apply to become sellers; an admin approves seller, shipper, and additional admin roles from the standalone **Marketplace** page in the admin navigation. Sellers manage their own products and shipping queue. The shipper platform is currently marked as coming soon and does not process deliveries.
 
 Marketplace data uses Firestore when Firebase credentials are configured. It is stored in the `marketplace_users`, `marketplace_carts`, `marketplace_wishlists`, `marketplace_addresses`, `marketplace_orders`, `marketplace_shippers`, and `marketplace_categories` collections. Passwords are never stored in marketplace profile documents. Existing marketplace profiles and their order/cart references are preserved; when a customer verifies their email after registration or password recovery, their Firebase identity is linked to their existing profile.
 
@@ -91,7 +92,7 @@ The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Per
 
 When `FIREBASE_SERVICE_ACCOUNT` is configured, catalog records are stored in the Firestore `products` collection and M-Pesa transaction status is stored in `mpesa_transactions`. Enable **Email/Password** under Firebase Authentication → Sign-in method, and add the deployed site domain to Firebase Authentication's authorized domains. The Firebase Web API key in `public/js/firebase.js` is intended for browser use; keep the service-account credentials private and configure them only on the server. For local development, place the downloaded service-account file at `firebase-key.json`; it is ignored by Git.
 
-Signed-in admins can open **Transactions** from the admin navigation to view completed M-Pesa payments, including buyer details and item quantities. This history requires working Firestore credentials; pending and failed payments are not listed.
+Signed-in admins can open **Transactions** or **Marketplace** from the admin navigation. Transactions shows completed M-Pesa payments, including buyer details and item quantities. This history requires working Firestore credentials; pending and failed payments are not listed.
 
 ## Customizing the look
 

@@ -168,9 +168,6 @@ async function loadAccountData() {
   if (roles.includes('seller') || roles.includes('admin')) {
     await Promise.all([loadSellerProducts(), loadCategories()]);
   }
-  if (roles.includes('admin')) {
-    await Promise.all([loadAdminUsers(), loadShippers(), loadCategories(), loadStats()]);
-  }
 }
 
 async function loadOrders() {
@@ -223,8 +220,8 @@ async function loadOrders() {
                   data-recipient="${escapeHtml(order.address?.recipient || order.customerName || '')}"
                   data-phone="${escapeHtml(order.phoneNumber || order.address?.phone || '')}"
                   data-destination="${escapeHtml(order.address ? `${order.address.city}, ${order.address.state}` : '')}"
-                  title="Push order to WhatsApp for quick response from seller">
-                  💬 WhatsApp Seller
+                  title="Push order to WhatsApp for a quicker response from the seller">
+                  Push order to WhatsApp
                 </button>
               </div>
               ${adminSessionMode || marketplaceUser.roles.includes('admin') || (marketplaceUser.roles.includes('seller') && item.sellerId === marketplaceUser.id)
@@ -334,54 +331,6 @@ async function loadCategories() {
   const { categories } = await api('/categories');
   const datalist = document.getElementById('marketplaceCategories');
   if (datalist) datalist.innerHTML = categories.map(category => `<option value="${escapeHtml(category.name)}"></option>`).join('');
-  const adminList = document.getElementById('categoriesList');
-  if (adminList) adminList.innerHTML = categories.map(category => {
-    return `<article class="marketplace-record">
-      <div><h4>${escapeHtml(category.name)}</h4><p>${escapeHtml(category.description || '')}</p></div>
-      <div class="marketplace-record-actions">
-        <button class="btn ghost" type="button" data-action="category-edit" data-id="${escapeHtml(category.id)}" data-name="${escapeHtml(category.name)}" data-description="${escapeHtml(category.description || '')}">Edit</button>
-        <button class="btn ghost" type="button" data-action="category-delete" data-id="${escapeHtml(category.id)}">Delete</button>
-      </div>
-    </article>`;
-  }).join('') || '<div class="marketplace-empty">Categories are inferred from the existing archive. Add one to create a new product category.</div>';
-}
-
-async function loadAdminUsers() {
-  const { users } = await api('/admin/users');
-  document.getElementById('usersList').innerHTML = users.map(user => `
-    <article class="marketplace-record marketplace-admin-user">
-      <div class="marketplace-record-main"><div>
-        <h4>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)} · @${escapeHtml(user.username)}</h4>
-        <p>${escapeHtml(user.email)} · ${user.isRestricted ? 'Restricted' : 'Active'}${user.sellerApplication ? ` · Seller application: ${escapeHtml(user.sellerApplication.status)}` : ''}</p>
-        <div class="marketplace-role-controls">${['seller', 'shipper', 'admin'].map(role => `
-          <label><input type="checkbox" data-role="${role}" data-user-id="${escapeHtml(user.id)}" ${user.roles.includes(role) ? 'checked' : ''} /> ${role}</label>`).join('')}</div>
-      </div></div>
-      <div class="marketplace-record-actions">
-        <button class="btn ghost" type="button" data-action="roles-save" data-id="${escapeHtml(user.id)}">Save roles</button>
-        <button class="btn ghost" type="button" data-action="user-restrict" data-id="${escapeHtml(user.id)}" data-restricted="${!user.isRestricted}">${user.isRestricted ? 'Unrestrict' : 'Restrict'}</button>
-      </div>
-    </article>`).join('') || '<div class="marketplace-empty">No registered accounts yet.</div>';
-}
-
-async function loadShippers() {
-  const { shippers } = await api('/admin/shippers');
-  document.getElementById('shippersList').innerHTML = shippers.map(shipper => `
-    <article class="marketplace-record">
-      <div><h4>${escapeHtml(shipper.user?.firstName)} ${escapeHtml(shipper.user?.lastName)} · @${escapeHtml(shipper.user?.username)}</h4>
-        <p>${escapeHtml(shipper.area || 'No area')} · ${escapeHtml(shipper.company || 'No company')} · ${escapeHtml(shipper.phone || 'No phone')}</p></div>
-      <div class="marketplace-record-actions">
-        <input class="marketplace-select" aria-label="Delivery area" placeholder="Area / county" value="${escapeHtml(shipper.area || '')}" data-shipper-area="${escapeHtml(shipper.userId)}" />
-        <input class="marketplace-select" aria-label="Company" placeholder="Company" value="${escapeHtml(shipper.company || '')}" data-shipper-company="${escapeHtml(shipper.userId)}" />
-        <input class="marketplace-select" aria-label="Phone" placeholder="Phone" value="${escapeHtml(shipper.phone || '')}" data-shipper-phone="${escapeHtml(shipper.userId)}" />
-        <button class="btn ghost" type="button" data-action="shipper-save" data-id="${escapeHtml(shipper.userId)}">Save</button>
-      </div>
-    </article>`).join('') || '<div class="marketplace-empty">Grant the shipper role to an account, then assign its delivery area here.</div>';
-}
-
-async function loadStats() {
-  const { stats } = await api('/admin/overview');
-  document.getElementById('marketplaceStats').innerHTML = Object.entries(stats).map(([key, value]) => `
-    <div class="marketplace-stat"><strong>${Number(value).toLocaleString()}</strong><span>${escapeHtml(key.replace(/[A-Z]/g, letter => ` ${letter}`).trim())}</span></div>`).join('');
 }
 
 function resetAddressForm() {
@@ -572,19 +521,6 @@ async function handleSellerApplication(event) {
   }
 }
 
-async function handleCategorySubmit(event) {
-  event.preventDefault();
-  const body = Object.fromEntries(new FormData(event.currentTarget).entries());
-  try {
-    await api('/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    event.currentTarget.reset();
-    showMessage(document.getElementById('categoryMessage'), 'Category added.');
-    await loadCategories();
-  } catch (error) {
-    showMessage(document.getElementById('categoryMessage'), error.message, true);
-  }
-}
-
 async function handleRecordAction(event) {
   const button = event.target.closest('[data-action]');
   if (!button) return;
@@ -633,49 +569,6 @@ async function handleRecordAction(event) {
         if (!confirm('Delete this product from the archive?')) return;
         await api(`/products/${encodeURIComponent(id)}`, { method: 'DELETE' });
         await loadSellerProducts();
-        break;
-      case 'roles-save': {
-        const checks = [...document.querySelectorAll(`[data-user-id="${CSS.escape(id)}"][data-role]`)];
-        const roles = ['customer', ...checks.filter(check => check.checked).map(check => check.dataset.role)];
-        await api(`/admin/users/${encodeURIComponent(id)}/roles`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roles }) });
-        await Promise.all([loadAdminUsers(), loadShippers()]);
-        showToast('Account roles updated.');
-        break;
-      }
-      case 'user-restrict':
-        await api(`/admin/users/${encodeURIComponent(id)}/restrict`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ restricted: button.dataset.restricted === 'true' })
-        });
-        await loadAdminUsers();
-        break;
-      case 'shipper-save': {
-        const area = document.querySelector(`[data-shipper-area="${CSS.escape(id)}"]`).value;
-        const company = document.querySelector(`[data-shipper-company="${CSS.escape(id)}"]`).value;
-        const phone = document.querySelector(`[data-shipper-phone="${CSS.escape(id)}"]`).value;
-        await api(`/admin/shippers/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ area, company, phone }) });
-        await loadShippers();
-        showToast('Shipper information saved.');
-        break;
-      }
-      case 'category-edit': {
-        const name = prompt('Category name', button.dataset.name);
-        if (name === null) return;
-        const description = prompt('Category description', button.dataset.description || '');
-        if (description === null) return;
-        await api(`/categories/${encodeURIComponent(id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, description })
-        });
-        await loadCategories();
-        break;
-      }
-      case 'category-delete':
-        if (!confirm('Delete this category? Categories currently used by products cannot be removed.')) return;
-        await api(`/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        await loadCategories();
         break;
       case 'ship':
         await api(`/orders/${encodeURIComponent(button.dataset.orderId)}/items/${encodeURIComponent(button.dataset.itemId)}/ship`, { method: 'PATCH' });
@@ -745,7 +638,6 @@ document.getElementById('cancelAddressEdit').addEventListener('click', resetAddr
 document.getElementById('productForm').addEventListener('submit', handleProductSubmit);
 document.getElementById('cancelProductEdit').addEventListener('click', () => setProductForm(null));
 document.getElementById('sellerApplyForm').addEventListener('submit', handleSellerApplication);
-document.getElementById('categoryForm').addEventListener('submit', handleCategorySubmit);
 document.getElementById('accountCreatedContinue').addEventListener('click', () => {
   document.getElementById('accountCreatedDialog').close();
   window.location.assign('/account.html?auth=signin');
