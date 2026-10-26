@@ -5,7 +5,7 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const admin = require('firebase-admin');
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { getAuth } = require('firebase-admin/auth');
 const fs = require('fs');
@@ -50,18 +50,19 @@ const productsCollection = db ? db.collection('products') : null;
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
 const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || '';
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const passwordResetRequests = new Map();
 const localAdmins = new Map();
 localAdmins.set('admin', {
   username: 'admin',
+<<<<<<< HEAD
   role: 'admin',
   title: 'admin',
   password: ADMIN_PASSWORD,
+=======
+>>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
   email: 'nsmskipruto@gmail.com'
 });
 
@@ -76,17 +77,6 @@ function hashAdminPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
   return `scrypt$${salt}$${hash}`;
-}
-
-function verifyAdminPassword(storedPassword, inputPassword) {
-  if (typeof storedPassword !== 'string') return false;
-  const [scheme, salt, expectedHash] = storedPassword.split('$');
-  if (scheme !== 'scrypt') return storedPassword === inputPassword;
-  if (!salt || !/^[a-f0-9]{128}$/i.test(expectedHash || '')) return false;
-
-  const actualHash = crypto.scryptSync(inputPassword, salt, 64);
-  const expected = Buffer.from(expectedHash, 'hex');
-  return actualHash.length === expected.length && crypto.timingSafeEqual(actualHash, expected);
 }
 
 if (CLOUDINARY_ENABLED) {
@@ -294,6 +284,7 @@ async function removeCloudinaryMedia(publicIds) {
 
 const marketplace = createMarketplace({
   db,
+  firebaseAuth: getApps().length ? getAuth() : null,
   dataDir: DATA_DIR,
   adminSessions: activeSessions,
   readCatalogItems,
@@ -323,9 +314,12 @@ async function ensureAdminExists() {
     if (snapshot.empty) {
       await adminsRef.doc('main_admin').set({
         username: 'admin',
+<<<<<<< HEAD
         role: 'admin',
         title: 'admin',
         password: hashAdminPassword(ADMIN_PASSWORD),
+=======
+>>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
         email: 'nsmskipruto@gmail.com'
       });
       console.log('✅ Admin account seeded in Firebase');
@@ -337,86 +331,50 @@ async function ensureAdminExists() {
 
 ensureAdminExists();
 
-// Flexible Admin Login Route
-app.post('/api/admin/login', async (req, res) => {
-  const { identifier, username, password } = req.body;
-  const rawLookup = identifier ?? username;
-
-  if (!rawLookup || !password) {
-    return res.status(400).json({ success: false, message: 'Username/email and password are required' });
+app.post('/api/admin/session', async (req, res) => {
+  if (!db || !getApps().length) {
+    return res.status(503).json({ success: false, message: 'Admin sign-in is temporarily unavailable.' });
   }
-
-  const lookup = String(rawLookup).trim().toLowerCase();
-  const inputPassword = String(password);
-
   try {
-    if (!db) {
-      const localAdmin = [...localAdmins.values()].find(admin =>
-        (admin.username.toLowerCase() === lookup || admin.email.toLowerCase() === lookup) &&
-        verifyAdminPassword(admin.password, inputPassword)
-      );
-      if (localAdmin) {
-        const token = crypto.randomBytes(24).toString('hex');
-        activeSessions.add(token);
-        return res.json({
-          success: true,
-          message: 'Login successful',
-          token,
-          admin: {
-            username: localAdmin ? localAdmin.username : 'admin',
-            email: localAdmin ? localAdmin.email : 'nsmskipruto@gmail.com'
-          }
-        });
-      }
-      return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
+    const decoded = await getAuth().verifyIdToken(req.body?.idToken);
+    const email = String(decoded.email || '').trim().toLowerCase();
+    if (!decoded.email_verified || !email) {
+      return res.status(403).json({ success: false, message: 'Verify your email address before signing in.' });
     }
-
-    const adminsRef = db.collection('admins');
-    const snapshot = await adminsRef.get();
-
-    let authenticatedAdmin = null;
-
-    if (!snapshot.empty) {
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        const dataUser = (data.username || '').trim().toLowerCase();
-        const dataEmail = (data.email || '').trim().toLowerCase();
-        const matchesIdentifier = (dataUser === lookup || dataEmail === lookup);
-        const matchesPassword = verifyAdminPassword(data.password, inputPassword);
-
-        if (matchesIdentifier && matchesPassword) {
-          authenticatedAdmin = data;
-        }
-      });
+    const snapshot = await db.collection('admins').where('email', '==', email).limit(1).get();
+    if (snapshot.empty) {
+      return res.status(403).json({ success: false, message: 'This Firebase account does not have admin access.' });
     }
-
-    if (authenticatedAdmin) {
-      const token = crypto.randomBytes(24).toString('hex');
-      activeSessions.add(token);
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        token,
-        admin: {
-          username: authenticatedAdmin.username,
-          email: authenticatedAdmin.email
-        }
-      });
+    const adminDoc = snapshot.docs[0];
+    const adminData = adminDoc.data();
+    if (adminData.firebaseUid && adminData.firebaseUid !== decoded.uid) {
+      return res.status(403).json({ success: false, message: 'This Firebase account does not have admin access.' });
     }
-
-    return res.status(401).json({ success: false, message: 'Invalid username/email or password' });
-
+    if (!adminData.firebaseUid) {
+      await adminDoc.ref.set({
+        firebaseUid: decoded.uid,
+        password: FieldValue.delete()
+      }, { merge: true });
+    }
+    const token = crypto.randomBytes(24).toString('hex');
+    activeSessions.add(token);
+    return res.json({ success: true, token, admin: { username: adminData.username || 'admin', email } });
   } catch (error) {
-    console.error('Login error:', error);
+    if (error.code === 'auth/argument-error' || error.code === 'auth/invalid-id-token' ||
+        error.code === 'auth/id-token-expired' || error.code === 'auth/invalid-argument') {
+      return res.status(401).json({ success: false, message: 'Sign in with a valid Firebase account.' });
+    }
+    console.error('Admin Firebase sign-in failed:', error.message);
     res.status(503).json({ success: false, message: 'Admin sign-in is temporarily unavailable.' });
   }
 });
 
-app.post('/api/admin/password-reset/request', async (req, res) => {
+async function sendAccountPasswordReset(req, res, accountType) {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
+<<<<<<< HEAD
 
   // Find admin account locally or in Firestore
   const localAdmin = [...localAdmins.values()].find(admin =>
@@ -456,33 +414,65 @@ app.post('/api/admin/password-reset/request', async (req, res) => {
   }
 
   if (!db || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
+=======
+  if (!db || !getApps().length || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
+>>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
     return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
   }
 
   const now = Date.now();
   const requestIp = req.ip || req.socket.remoteAddress || 'unknown';
-  const recentRequests = (passwordResetRequests.get(requestIp) || []).filter(timestamp => now - timestamp < 15 * 60 * 1000);
+  const recentRequests = (passwordResetRequests.get(requestIp) || [])
+    .filter(timestamp => now - timestamp < 15 * 60 * 1000);
   if (recentRequests.length >= 5) {
     return res.status(429).json({ success: false, message: 'Too many requests. Try again later.' });
   }
   passwordResetRequests.set(requestIp, [...recentRequests, now]);
 
+  const genericResponse = {
+    success: true,
+    message: 'If an account matches that email, a password reset link will be sent.'
+  };
   try {
+<<<<<<< HEAD
     if (!adminDoc) {
       return res.status(403).json({
         success: false,
         message: 'Password reset links can only be sent to emails with the admin title.'
       });
     }
+=======
+    const collection = accountType === 'admin' ? 'admins' : 'marketplace_users';
+    const snapshot = await db.collection(collection).where('email', '==', email).limit(1).get();
+    if (snapshot.empty) return res.status(202).json(genericResponse);
+>>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
 
-    const token = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const expiresAt = new Date(now + PASSWORD_RESET_TTL_MS);
-    await adminDoc.ref.set({
-      passwordReset: { tokenHash, expiresAt }
+    const accountDoc = snapshot.docs[0];
+    const account = accountDoc.data();
+    let firebaseUser;
+    try {
+      firebaseUser = await getAuth().getUserByEmail(email);
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') throw error;
+      firebaseUser = await getAuth().createUser({
+        email,
+        emailVerified: true,
+        password: crypto.randomBytes(48).toString('base64url'),
+        displayName: accountType === 'admin'
+          ? account.username || 'Admin'
+          : `${account.firstName || ''} ${account.lastName || ''}`.trim() || 'Customer'
+      });
+    }
+    if (account.firebaseUid && account.firebaseUid !== firebaseUser.uid) {
+      return res.status(202).json(genericResponse);
+    }
+    await accountDoc.ref.set({
+      firebaseUid: firebaseUser.uid,
+      ...(accountType === 'admin' ? { password: FieldValue.delete() } : {})
     }, { merge: true });
 
-    const resetUrl = `${PUBLIC_BASE_URL}/reset-password.html?token=${token}`;
+    const continueUrl = `${PUBLIC_BASE_URL}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
+    const resetUrl = await getAuth().generatePasswordResetLink(email, { url: continueUrl });
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -492,85 +482,31 @@ app.post('/api/admin/password-reset/request', async (req, res) => {
       body: JSON.stringify({
         from: RESEND_FROM_EMAIL,
         to: [email],
-        subject: 'Reset your admin password',
-        text: `Use this link to reset your admin password. It expires in 30 minutes.\n\n${resetUrl}`,
-        html: `<p>Use the link below to reset your admin password. It expires in 30 minutes.</p><p><a href="${resetUrl}">Reset admin password</a></p>`
+        subject: accountType === 'admin' ? 'Reset your admin password' : 'Reset your password',
+        text: `Use this link to reset your password.\n\n${resetUrl}`,
+        html: `<p>Use the link below to reset your password.</p><p><a href="${resetUrl}">Reset password</a></p>`
       })
     });
-
     if (!emailResponse.ok) {
-      await db.runTransaction(async transaction => {
-        const currentAdmin = await transaction.get(adminDoc.ref);
-        if (currentAdmin.data()?.passwordReset?.tokenHash === tokenHash) {
-          transaction.update(adminDoc.ref, { passwordReset: null });
-        }
-      });
       console.error('Password reset email provider returned:', emailResponse.status);
+      return res.status(202).json(genericResponse);
     }
     return res.status(200).json({
       success: true,
       message: 'A password reset link has been sent to your admin email.'
     });
   } catch (error) {
-    console.error('Password reset request failed:', error.message);
-    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
+    console.error(`${accountType} password reset request failed:`, error.message);
+    return res.status(202).json(genericResponse);
   }
+}
+
+app.post('/api/auth/password-reset/request', async (req, res) => {
+  const accountType = req.body?.accountType === 'admin' ? 'admin' : 'customer';
+  return sendAccountPasswordReset(req, res, accountType);
 });
 
-app.post('/api/admin/password-reset/complete', async (req, res) => {
-  const token = String(req.body?.token || '').trim();
-  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-  if (!/^[a-f0-9]{64}$/i.test(token) || newPassword.length < 12 || newPassword.length > 128) {
-    return res.status(400).json({ success: false, message: 'This reset link is invalid or expired, or the password does not meet the requirements.' });
-  }
-  if (!db) {
-    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
-  }
-
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  try {
-    const adminsSnapshot = await db.collection('admins')
-      .where('passwordReset.tokenHash', '==', tokenHash)
-      .limit(1)
-      .get();
-    if (adminsSnapshot.empty) {
-      return res.status(400).json({ success: false, message: 'This reset link is invalid or expired.' });
-    }
-
-    const adminRef = adminsSnapshot.docs[0].ref;
-    const passwordHash = hashAdminPassword(newPassword);
-    await db.runTransaction(async transaction => {
-      const currentDoc = await transaction.get(adminRef);
-      const reset = currentDoc.data()?.passwordReset;
-      const expiry = reset?.expiresAt?.toMillis?.() ?? new Date(reset?.expiresAt || 0).getTime();
-      if (reset?.tokenHash !== tokenHash || !Number.isFinite(expiry) || expiry <= Date.now()) {
-        throw new Error('INVALID_OR_EXPIRED_RESET_TOKEN');
-      }
-      transaction.update(adminRef, {
-        password: passwordHash,
-        passwordReset: null,
-        passwordUpdatedAt: new Date()
-      });
-    });
-
-    activeSessions.clear();
-    const adminId = adminsSnapshot.docs[0].id;
-    try {
-      await getAuth().updateUser(adminId, { password: newPassword });
-    } catch (error) {
-      if (error.code !== 'auth/user-not-found') {
-        console.warn('Firebase Auth password sync failed:', error.message);
-      }
-    }
-    res.json({ success: true, message: 'Password reset. You can now sign in.' });
-  } catch (error) {
-    if (error.message === 'INVALID_OR_EXPIRED_RESET_TOKEN') {
-      return res.status(400).json({ success: false, message: 'This reset link is invalid or expired.' });
-    }
-    console.error('Password reset completion failed:', error.message);
-    res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
-  }
-});
+app.post('/api/admin/password-reset/request', (req, res) => sendAccountPasswordReset(req, res, 'admin'));
 
 app.get('/api/session', requireAuth, (req, res) => {
   res.json({ authenticated: true });
@@ -1101,66 +1037,52 @@ app.post('/api/admin/create', requireAuth, async (req, res) => {
   if (!username || !email || !password) {
     return res.status(400).json({ success: false, message: 'Username, email, and password are required.' });
   }
+  if (!db || !getApps().length) {
+    return res.status(503).json({ success: false, message: 'Admin account creation is temporarily unavailable.' });
+  }
 
   const cleanUsername = String(username).trim();
   const cleanEmail = String(email).trim().toLowerCase();
   const rawPassword = String(password);
 
-  if (rawPassword.length < 6) {
-    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+  if (rawPassword.length < 10 || rawPassword.length > 128) {
+    return res.status(400).json({ success: false, message: 'Password must be between 10 and 128 characters.' });
   }
 
+  let createdUid = null;
   try {
-    let uid = null;
-
-    // 1. Try Firebase Auth if available
-    try {
-      const userRecord = await getAuth().createUser({
-        email: cleanEmail,
-        password: rawPassword,
-        displayName: cleanUsername
-      });
-      uid = userRecord.uid;
-    } catch (authErr) {
-      console.warn('Firebase Auth user creation note:', authErr.message);
-    }
-
-    // 2. Save directly to Firestore 'admins' collection
-    if (db) {
-      const docRef = uid ? db.collection('admins').doc(uid) : db.collection('admins').doc();
-      await docRef.set({
-        username: cleanUsername,
-        email: cleanEmail,
-        password: hashAdminPassword(rawPassword),
-        role: 'admin',
-        createdAt: new Date()
-      });
-
-      if (uid) {
-        await db.collection('admin_profiles').doc(uid).set({
-          username: cleanUsername,
-          email: cleanEmail,
-          role: 'admin',
-          createdAt: new Date()
-        }).catch(() => {});
-      }
-    }
-
-    // 3. Register in local memory fallback
-    localAdmins.set(cleanUsername.toLowerCase(), {
-      username: cleanUsername,
+    const userRecord = await getAuth().createUser({
+      email: cleanEmail,
       password: rawPassword,
-      email: cleanEmail
+      displayName: cleanUsername
+    });
+    createdUid = userRecord.uid;
+    await db.collection('admins').doc(createdUid).set({
+      firebaseUid: createdUid,
+      username: cleanUsername,
+      email: cleanEmail,
+      role: 'admin',
+      createdAt: new Date()
     });
 
     res.json({
       success: true,
-      message: db ? 'Admin directly added to Firebase!' : 'Admin added locally!',
+      message: 'Admin account created in Firebase. The new admin must verify their email before signing in.',
       admin: { username: cleanUsername, email: cleanEmail }
     });
   } catch (error) {
+    if (createdUid) {
+      try {
+        await getAuth().deleteUser(createdUid);
+      } catch (cleanupError) {
+        console.error('Could not remove incomplete Firebase admin account:', cleanupError.message);
+      }
+    }
+    if (error.code === 'auth/email-already-exists') {
+      return res.status(409).json({ success: false, message: 'An account already uses that email address.' });
+    }
     console.error('Error creating admin:', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to create admin' });
+    res.status(503).json({ success: false, message: 'Admin account creation is temporarily unavailable.' });
   }
 });
 

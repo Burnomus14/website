@@ -1,3 +1,5 @@
+import { getMarketplaceToken } from './firebase.js';
+
 const galleryEl = document.getElementById('gallery');
 const filterBtns = document.querySelectorAll('.filter-btn');
 const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
@@ -347,9 +349,9 @@ function removeFromCart(productId) {
   renderCartModal();
 }
 
-function saveCart() {
+async function saveCart() {
   localStorage.setItem('shoe_cart', JSON.stringify(cart));
-  const token = localStorage.getItem('marketplaceToken');
+  const token = await getMarketplaceToken();
   if (token) {
     fetch('/api/marketplace/cart', {
       method: 'PUT',
@@ -365,12 +367,11 @@ function saveCart() {
 }
 
 async function loadSignedInCart() {
-  const token = localStorage.getItem('marketplaceToken');
+  const token = await getMarketplaceToken();
   if (!token) return;
   const response = await fetch('/api/marketplace/cart', { headers: { 'x-marketplace-token': token } });
   const data = await response.json();
   if (!response.ok) {
-    if (response.status === 401) localStorage.removeItem('marketplaceToken');
     throw new Error(data.message || 'Could not load your account basket.');
   }
   const merged = new Map();
@@ -401,7 +402,7 @@ async function loadSignedInCart() {
 }
 
 async function saveToWishlist(productId) {
-  const token = localStorage.getItem('marketplaceToken');
+  const token = await getMarketplaceToken();
   if (!token) {
     window.location.href = '/account.html';
     return;
@@ -714,7 +715,7 @@ async function submitMpesaCheckout(event) {
   submitBtn.disabled = true;
   submitBtn.textContent = 'Sending prompt...';
   try {
-    const accountToken = localStorage.getItem('marketplaceToken');
+    const accountToken = await getMarketplaceToken();
     const headers = { 'Content-Type': 'application/json' };
     if (accountToken) headers['x-marketplace-token'] = accountToken;
     const res = await fetch('/api/mpesa/stkpush', {
@@ -829,7 +830,7 @@ function setupMpesaUI() {
 }
 
 async function prepareCheckoutAddresses() {
-  const token = localStorage.getItem('marketplaceToken');
+  const token = await getMarketplaceToken();
   const wrapper = document.getElementById('savedAddressField');
   const select = document.getElementById('mpesaSavedAddress');
   wrapper.hidden = !token;

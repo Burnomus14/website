@@ -39,12 +39,19 @@
             <label class="field">Username<input name="username" autocomplete="username" required /></label>
           </div>
         </div>
-        <label class="field"><span id="identifierLabel">Email or username</span><input name="identifier" autocomplete="username" required /></label>
+        <label class="field"><span id="identifierLabel">Email</span><input name="identifier" type="email" autocomplete="email" required /></label>
         <label class="field">Password<input name="password" type="password" minlength="10" autocomplete="current-password" required /></label>
+        <a class="marketplace-forgot-link" href="/reset-password.html?type=customer">Forgot password?</a>
         <p class="marketplace-message" id="authMessage" role="status"></p>
         <button class="btn" type="submit" id="authSubmit">Sign in</button>
       </form>
     </section>
+
+    <dialog class="account-created-dialog" id="accountCreatedDialog" aria-labelledby="accountCreatedTitle">
+      <h2 id="accountCreatedTitle">Account created</h2>
+      <p>Your email is confirmed and your account is ready. Continue to sign in.</p>
+      <button class="btn" type="button" id="accountCreatedContinue">Continue to sign in</button>
+    </dialog>
 
     <section class="marketplace-dashboard" id="accountPanel" hidden>
       <div class="marketplace-account-heading">
@@ -194,6 +201,6 @@
     <p>Managed from the <a href="/admin-login.html">admin panel</a>.</p>
   </footer>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/js/account.js"></script>
+  <script type="module" src="/js/account.js"></script>
 </body>
 </html>
