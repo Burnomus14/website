@@ -11,6 +11,7 @@ const { getAuth } = require('firebase-admin/auth');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const createMarketplace = require('./marketplace');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -288,6 +289,25 @@ async function removeCloudinaryMedia(publicIds) {
     cloudinary.uploader.destroy(publicId, { resource_type: 'image' })
   ));
 }
+
+const marketplace = createMarketplace({
+  db,
+  dataDir: DATA_DIR,
+  adminSessions: activeSessions,
+  readCatalogItems,
+  writeCatalogItems: writeItems,
+  uploadImages,
+  uploadMedia,
+  getMediaUrls,
+  removeUnreferencedMedia,
+  removeCloudinaryMedia
+});
+app.use('/api/marketplace', marketplace.router);
+app.use('/api/marketplace', (error, req, res, next) => {
+  console.error('Marketplace request failed:', error);
+  if (res.headersSent) return next(error);
+  res.status(error.status || 500).json({ success: false, message: 'Marketplace request could not be completed.' });
+});
 
 // Ensure default admin exists in Firestore on startup
 async function ensureAdminExists() {
@@ -671,6 +691,7 @@ async function completeMpesaTransaction(checkoutRequestId, transaction, resultCo
   return withInventoryLock(async () => {
     const latest = await loadPendingTransaction(checkoutRequestId);
     if (latest.inventoryApplied) {
+      await marketplace.createPaidOrder(latest);
       releaseInventoryReservation(checkoutRequestId);
       return latest;
     }
@@ -697,6 +718,7 @@ async function completeMpesaTransaction(checkoutRequestId, transaction, resultCo
       inventoryApplied: true,
       completedAt: latest.completedAt || Date.now()
     };
+    await marketplace.createPaidOrder(completed);
     await storePendingTransaction(checkoutRequestId, completed);
     releaseInventoryReservation(checkoutRequestId);
     return completed;
@@ -811,6 +833,37 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
 
   let reservationId;
   try {
+    let marketplaceUser = null;
+    let deliveryAddress = null;
+    const accountToken = req.headers['x-marketplace-token'] || req.headers['x-auth-token'];
+    if (accountToken) {
+      marketplaceUser = await marketplace.resolveUserToken(accountToken);
+      if (!marketplaceUser) {
+        return res.status(401).json({ success: false, message: 'Your account session has expired. Sign in again to place a tracked order.' });
+      }
+      if (req.body.addressId) {
+        deliveryAddress = await marketplace.findAddress(marketplaceUser.id, String(req.body.addressId));
+        if (!deliveryAddress) {
+          return res.status(400).json({ success: false, message: 'Choose a valid saved delivery address.' });
+        }
+      }
+    }
+    if (!deliveryAddress && req.body.deliveryAddress && typeof req.body.deliveryAddress === 'object') {
+      const suppliedAddress = req.body.deliveryAddress;
+      deliveryAddress = {
+        recipient: String(suppliedAddress.recipient || customerName || '').trim().slice(0, 120),
+        phone: String(suppliedAddress.phone || phoneNumber).trim().slice(0, 30),
+        country: String(suppliedAddress.country || 'Kenya').trim().slice(0, 80),
+        state: String(suppliedAddress.state || '').trim().slice(0, 100),
+        city: String(suppliedAddress.city || '').trim().slice(0, 100),
+        street: String(suppliedAddress.street || '').trim().slice(0, 160),
+        addressLine: String(suppliedAddress.addressLine || '').trim().slice(0, 240),
+        postalCode: String(suppliedAddress.postalCode || '').trim().slice(0, 20)
+      };
+      if (!deliveryAddress.state || !deliveryAddress.city || !deliveryAddress.street) {
+        return res.status(400).json({ success: false, message: 'Enter a delivery area, city, and street.' });
+      }
+    }
     reservationId = await reserveInventory(itemLines);
     const numericAmount = itemLines.reduce((total, line) => total + line.unitAmount * line.quantity, 0);
     if (!Number.isSafeInteger(numericAmount) || numericAmount < 1) {
@@ -877,6 +930,8 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
         amount: numericAmount,
         itemName: itemName || 'Collection Piece',
         customerName: customerName || 'Valued Customer',
+        marketplaceUserId: marketplaceUser?.id || null,
+        deliveryAddress,
         itemId: itemId || null,
         itemLines,
         quantity: itemLines.reduce((total, line) => total + line.quantity, 0) || null,
