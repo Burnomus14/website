@@ -315,8 +315,13 @@ display: inline-block;
 .modal-close-btn { position: absolute; top: 12px; right: 14px; z-index: 2; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; background: var(--card); color: var(--ink); font-size: 22px; line-height: 1; cursor: pointer; }
 .product-modal-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr); gap: 28px; padding-top: 10px; }
 .gallery-container { min-width: 0; }
-.main-image-wrapper { aspect-ratio: 4 / 5; max-height: 62vh; overflow: hidden; border-radius: 8px; background: var(--card); touch-action: pan-y; }
+.main-image-wrapper { position: relative; aspect-ratio: 4 / 5; max-height: 62vh; overflow: hidden; border-radius: 8px; background: var(--card); touch-action: pan-y; }
 .main-image-wrapper img { width: 100%; height: 100%; object-fit: contain; }
+.gallery-nav-btn { position: absolute; top: 50%; z-index: 1; display: flex; width: 40px; height: 40px; align-items: center; justify-content: center; padding: 0 0 4px; transform: translateY(-50%); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 50%; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 30px; line-height: 1; cursor: pointer; }
+.gallery-nav-btn[hidden] { display: none; }
+.gallery-nav-btn:hover, .gallery-nav-btn:focus-visible { background: rgba(0, 0, 0, 0.9); }
+.gallery-nav-prev { left: 12px; }
+.gallery-nav-next { right: 12px; }
 .gallery-thumbnails { display: flex; gap: 8px; overflow-x: auto; padding: 12px 2px 2px; }
 .thumb-button { flex: 0 0 62px; height: 62px; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: 6px; background: var(--card); cursor: pointer; }
 .thumb-button.active, .thumb-button:hover { border-color: #25d366; }
@@ -568,6 +573,12 @@ display: inline-block;
   border-collapse: collapse;
 }
 
+.admin-items-section { min-width: 0; overflow-x: auto; }
+.admin-items-search { position: relative; width: min(420px, 100%); margin: 0 0 16px auto; }
+.admin-items-search input { width: 100%; padding: 10px 14px 10px 40px; border: 1px solid var(--line); border-radius: 22px; background: var(--card); color: var(--ink); font: inherit; outline: none; }
+.admin-items-search input:focus { border-color: #555; }
+.admin-items-search-icon { position: absolute; top: 50%; left: 13px; width: 17px; height: 17px; transform: translateY(-50%); fill: none; stroke: var(--ink-dim); stroke-linecap: round; stroke-width: 2; pointer-events: none; }
+
 .admin-table th {
   text-align: left;
   font-size: 11.5px;
@@ -656,4 +667,3 @@ display: inline-block;
 .mpesa-loader-bar { height:4px; background:var(--line); border-radius:4px; overflow:hidden; max-width:280px; margin:0 auto; }
 .mpesa-loader-progress { height:100%; width:0; background:linear-gradient(90deg,#00a859,#25d366); border-radius:4px; animation:mpesaProgress 30s linear forwards; }
 @keyframes mpesaProgress { to{width:100%;} }
-

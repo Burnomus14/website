@@ -7,9 +7,12 @@ const submitBtn = document.getElementById('submitBtn');
 const cancelEditBtn = document.getElementById('cancelEditBtn');
 const formError = document.getElementById('formError');
 const tableBody = document.getElementById('itemsTableBody');
+const itemsSearchInput = document.getElementById('itemsSearchInput');
 const toast = document.getElementById('toast');
 const customUploadBtn = document.getElementById('customUploadBtn');
 const imageInput = document.getElementById('imageInput');
+const cameraUploadBtn = document.getElementById('cameraUploadBtn');
+const cameraInput = document.getElementById('cameraInput');
 const priceInput = document.getElementById('price');
 const quantityInput = document.getElementById('quantity');
 const statusInput = document.getElementById('status');
@@ -17,6 +20,10 @@ const statusInput = document.getElementById('status');
 customUploadBtn.addEventListener('click', () => {
   imageInput.removeAttribute('capture');
   imageInput.click();
+});
+
+cameraUploadBtn.addEventListener('click', () => {
+  cameraInput.click();
 });
 
 function formatPriceInput() {
@@ -39,6 +46,8 @@ priceInput.addEventListener('input', formatPriceInput);
 let token = localStorage.getItem('adminToken') || null;
 let items = [];
 let editingId = null;
+
+itemsSearchInput.addEventListener('input', renderTable);
 
 function syncStatusToQuantity() {
   if (statusInput.value === 'regular') return;
@@ -91,12 +100,21 @@ async function loadItems() {
 }
 
 function renderTable() {
-  if (items.length === 0) {
-    tableBody.innerHTML = `<tr><td colspan="7" style="color:var(--ink-dim); padding:24px 12px;">No items yet — add your first one above.</td></tr>`;
+  const query = itemsSearchInput.value.trim().toLowerCase();
+  const filteredItems = items.filter(item =>
+    [item.name, item.category, item.caption, item.price]
+      .some(value => String(value || '').toLowerCase().includes(query))
+  );
+
+  if (filteredItems.length === 0) {
+    const message = items.length === 0
+      ? 'No items yet — add your first one above.'
+      : 'No items match your search.';
+    tableBody.innerHTML = `<tr><td colspan="7" style="color:var(--ink-dim); padding:24px 12px;">${message}</td></tr>`;
     return;
   }
 
-  tableBody.innerHTML = items.map(item => {
+  tableBody.innerHTML = filteredItems.map(item => {
     const image = getItemImages(item)[0];
     return `
     <tr data-id="${item.id}">
@@ -199,7 +217,7 @@ itemForm.addEventListener('submit', async (e) => {
   fd.append('quantity', quantityInput.value);
   fd.append('status', statusInput.value);
   fd.append('caption', document.getElementById('caption').value.trim());
-  const imageFiles = Array.from(document.getElementById('imageInput').files);
+  const imageFiles = [...imageInput.files, ...cameraInput.files];
   if (imageFiles.length > 8) {
     formError.textContent = 'Choose up to 8 images.';
     submitBtn.disabled = false;

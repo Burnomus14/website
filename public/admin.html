@@ -102,7 +102,9 @@
             accept="image/*"
             multiple
           />
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
           <button type="button" class="btn ghost" id="customUploadBtn">Choose images</button>
+          <button type="button" class="btn ghost" id="cameraUploadBtn">Take photo</button>
         </div>
       </div>
       <div class="row-actions" style="margin-top:18px">
@@ -113,7 +115,15 @@
     </form>
   </section>
 
-  <section>
+  <section class="admin-items-section">
+    <div class="admin-items-search">
+      <label class="sr-only" for="itemsSearchInput">Search items</label>
+      <svg class="admin-items-search-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <circle cx="10.8" cy="10.8" r="6.8"></circle>
+        <path d="m16 16 5 5"></path>
+      </svg>
+      <input type="search" id="itemsSearchInput" placeholder="Search items by name or category..." autocomplete="off" />
+    </div>
     <table class="admin-table">
       <thead>
         <tr>

@@ -145,13 +145,15 @@ function openProductModal(productId) {
   activeGalleryIndex = 0;
   const mainImage = document.getElementById('gallery-main-img');
   const thumbnails = document.getElementById('gallery-thumbnails');
+  document.getElementById('gallery-prev').hidden = images.length < 2;
+  document.getElementById('gallery-next').hidden = images.length < 2;
   document.getElementById('modal-product-title').textContent = product.name || '';
   document.getElementById('modal-product-price').textContent = product.price || 'Price on request';
   document.getElementById('modal-product-desc').textContent = product.caption || 'No caption available.';
 
   if (images.length > 0) {
     mainImage.src = images[0];
-    mainImage.alt = product.name || 'Product image';
+    mainImage.alt = `${product.name || 'Product'} image 1 of ${images.length}`;
     thumbnails.innerHTML = images.map((image, index) => `
       <button class="thumb-button ${index === 0 ? 'active' : ''}" type="button" data-image-index="${index}" aria-label="View image ${index + 1}">
         <img src="${image}" alt="" />
@@ -190,6 +192,7 @@ function changeGalleryImage(images, index) {
   activeGalleryIndex = (index + images.length) % images.length;
   const mainImage = document.getElementById('gallery-main-img');
   mainImage.src = images[activeGalleryIndex];
+  mainImage.alt = `${activeProduct?.name || 'Product'} image ${activeGalleryIndex + 1} of ${images.length}`;
   document.querySelectorAll('.thumb-button').forEach((button, buttonIndex) => {
     button.classList.toggle('active', buttonIndex === activeGalleryIndex);
   });
@@ -407,6 +410,12 @@ clearSearch.addEventListener('click', () => {
 });
 
 document.getElementById('close-product-modal').addEventListener('click', closeProductModal);
+document.getElementById('gallery-prev').addEventListener('click', () => {
+  changeGalleryImage(activeGalleryImages, activeGalleryIndex - 1);
+});
+document.getElementById('gallery-next').addEventListener('click', () => {
+  changeGalleryImage(activeGalleryImages, activeGalleryIndex + 1);
+});
 let swipeStart = null;
 const mainImageWrapper = document.querySelector('.main-image-wrapper');
 mainImageWrapper.addEventListener('touchstart', event => {
