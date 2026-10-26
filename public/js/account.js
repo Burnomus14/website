@@ -130,6 +130,9 @@ function renderAccount() {
     document.querySelector('#sellerApplyForm button').disabled = true;
   }
   setActivePanel('ordersPanel');
+  if (window.location.hash === '#ordersPanel') {
+    document.getElementById('ordersPanel').scrollIntoView({ block: 'start' });
+  }
   loadAccountData().catch(error => showToast(error.message));
 }
 
@@ -395,7 +398,6 @@ async function handleAuthSubmit(event) {
     }
 
     const credential = await signInWithEmailAndPassword(auth, values.identifier.trim(), values.password);
-    const credential = await signInWithEmailAndPassword(auth, values.identifier, values.password);
     await reload(credential.user);
     if (!credential.user.emailVerified) {
       await sendEmailVerification(credential.user, verificationActionSettings);
