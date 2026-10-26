@@ -362,8 +362,18 @@ async function sendAccountPasswordReset(req, res, accountType) {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
-  if (!db || !getApps().length || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
-    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
+  const missingResetConfig = [
+    ...(!db || !getApps().length ? ['FIREBASE_SERVICE_ACCOUNT'] : []),
+    ...(!RESEND_API_KEY ? ['RESEND_API_KEY'] : []),
+    ...(!RESEND_FROM_EMAIL ? ['RESEND_FROM_EMAIL'] : []),
+    ...(!PUBLIC_BASE_URL ? ['PUBLIC_BASE_URL'] : [])
+  ];
+  if (missingResetConfig.length) {
+    console.error(`Password reset unavailable; missing configuration: ${missingResetConfig.join(', ')}`);
+    return res.status(503).json({
+      success: false,
+      message: 'Password reset is not configured for this site yet. Please contact the store administrator.'
+    });
   }
 
   const now = Date.now();
