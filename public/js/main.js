@@ -803,6 +803,30 @@ async function pollPaymentStatus(checkoutRequestId) {
 
 function showPaymentSuccess() {
   showMpesaStep('success');
+ feature/inventory-import
+  document.getElementById('mpesaSuccessMessage').textContent = 'Payment confirmed. Thank you for your order.';
+  const pushBtn = document.getElementById('mpesaPushWhatsappBtn');
+  if (pushBtn && currentCheckout) {
+    const checkoutCopy = { ...currentCheckout };
+    pushBtn.onclick = () => {
+      const itemName = checkoutCopy.itemName || 'Collection Item';
+      const amount = checkoutCopy.amount ? formatKsh(checkoutCopy.amount) : '';
+      const phone = checkoutCopy.phoneNumber || '';
+      const address = checkoutCopy.address ? `${checkoutCopy.address.street}, ${checkoutCopy.address.city}` : '';
+      const msg = [
+        'Hello! I just placed and confirmed an order on The Collection:',
+        '',
+        `• Item: ${itemName}`,
+        amount ? `• Amount: ${amount}` : '',
+        phone ? `• Customer Phone: ${phone}` : '',
+        address ? `• Delivery Destination: ${address}` : '',
+        '',
+        'Could you please confirm receipt and update me on dispatch? Thank you!'
+      ].filter(Boolean).join('\n');
+      const url = `https://api.whatsapp.com/send?phone=${sellerPhoneNumber || '254728074301'}&text=${encodeURIComponent(msg)}`;
+      window.open(url, '_blank');
+    };
+=======
   const message = currentCheckout?.trackedOrder
     ? 'Payment confirmed. Thank you for your order. Taking you to order tracking...'
     : 'Payment confirmed. This guest order is not linked to account order tracking. Sign in before checkout to track future orders.';
@@ -814,6 +838,7 @@ function showPaymentSuccess() {
     paymentSuccessRedirectTimer = setTimeout(() => {
       window.location.assign('/account.html#ordersPanel');
     }, 2500);
+main
   }
   if (currentCheckout?.clearCartOnSuccess) {
     cart = [];
