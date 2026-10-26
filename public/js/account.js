@@ -382,6 +382,14 @@ async function handleAuthSubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   const values = Object.fromEntries(formData.entries());
+  const submitButton = document.getElementById('authSubmit');
+  const switchModeButton = document.getElementById('switchAuthMode');
+  const isRegistering = registrationMode;
+  submitButton.disabled = true;
+  submitButton.classList.add('is-loading');
+  submitButton.setAttribute('aria-busy', 'true');
+  submitButton.textContent = isRegistering ? 'Creating account...' : 'Signing in...';
+  switchModeButton.disabled = true;
   try {
     if (registrationMode) {
       if (auth.currentUser && localStorage.getItem(pendingRegistrationKey)) {
@@ -423,7 +431,13 @@ async function handleAuthSubmit(event) {
     renderAccount();
     continuePendingCheckout();
   } catch (error) {
-    showMessage(authMessage, registrationMode ? error.message : getSignInErrorMessage(error), true);
+    showMessage(authMessage, isRegistering ? error.message : getSignInErrorMessage(error), true);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.classList.remove('is-loading');
+    submitButton.removeAttribute('aria-busy');
+    submitButton.textContent = registrationMode ? 'Create account' : 'Sign in';
+    switchModeButton.disabled = false;
   }
 }
 
