@@ -13,7 +13,7 @@ let searchQuery = '';
 let sortOrder = 'newest';
 let collectionView = localStorage.getItem('collection_view') === 'compact' ? 'compact' : 'cards';
 const savedColumnsPerRow = localStorage.getItem('cards_per_row');
-let cardsPerRow = ['2', '3', '4', '5'].includes(savedColumnsPerRow) ? Number(savedColumnsPerRow) : 3;
+let cardsPerRow = ['2', '3', '4', '5', '6'].includes(savedColumnsPerRow) ? Number(savedColumnsPerRow) : 3;
 let cart = JSON.parse(localStorage.getItem('shoe_cart') || '[]');
 let marketplaceAddresses = [];
 let activeProduct = null;
