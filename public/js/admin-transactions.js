@@ -1,4 +1,7 @@
 const transactionMessage = document.getElementById('transactionMessage');
+import { signOut } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { auth } from './firebase.js';
+
 const transactionsTableWrap = document.getElementById('transactionsTableWrap');
 const transactionsTableBody = document.getElementById('transactionsTableBody');
 const token = localStorage.getItem('adminToken');
@@ -76,8 +79,11 @@ document.getElementById('refreshTransactions').addEventListener('click', loadTra
 document.getElementById('signOut').addEventListener('click', async () => {
   try {
     await fetch('/api/logout', { method: 'POST', headers: { 'x-admin-token': token || '' } });
-  } catch {}
+  } catch (error) {
+    console.error('Admin sign-out failed:', error);
+  }
   localStorage.removeItem('adminToken');
+  await signOut(auth);
   window.location.href = '/admin-login.html';
 });
 

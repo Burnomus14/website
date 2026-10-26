@@ -1,8 +1,17 @@
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  updateProfile
+} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { auth } from './firebase.js';
+
 const authPanel = document.getElementById('authPanel');
 const accountPanel = document.getElementById('accountPanel');
 const authForm = document.getElementById('authForm');
 const authMessage = document.getElementById('authMessage');
-const marketplaceTokenKey = 'marketplaceToken';
+const pendingRegistrationKey = 'pendingMarketplaceRegistration';
 let marketplaceUser = null;
 let registrationMode = false;
 let adminSessionMode = false;
@@ -16,17 +25,20 @@ function escapeHtml(value) {
   return element.innerHTML;
 }
 
-function getAuthHeaders(extra = {}) {
+async function getAuthHeaders(extra = {}) {
   const headers = { ...extra };
-  const marketplaceToken = localStorage.getItem(marketplaceTokenKey);
   const adminToken = localStorage.getItem('adminToken');
-  if (marketplaceToken) headers['x-marketplace-token'] = marketplaceToken;
-  else if (adminToken) headers['x-admin-token'] = adminToken;
+  if (adminToken) {
+    headers['x-admin-token'] = adminToken;
+  } else {
+    await auth.authStateReady();
+    if (auth.currentUser) headers['x-marketplace-token'] = await auth.currentUser.getIdToken();
+  }
   return headers;
 }
 
 async function api(path, options = {}) {
-  const headers = getAuthHeaders(options.headers || {});
+  const headers = await getAuthHeaders(options.headers || {});
   const response = await fetch(`/api/marketplace${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.success === false) {
@@ -54,9 +66,9 @@ function setAuthMode(register) {
   registrationMode = register;
   document.getElementById('registerFields').hidden = !register;
   document.getElementById('authHeading').textContent = register ? 'Join the collection.' : 'Sign in to your account.';
-  document.getElementById('identifierLabel').textContent = register ? 'Email' : 'Email or username';
-  document.querySelector('#authForm [name="identifier"]').type = register ? 'email' : 'text';
-  document.querySelector('#authForm [name="identifier"]').autocomplete = register ? 'email' : 'username';
+  document.getElementById('identifierLabel').textContent = 'Email';
+  document.querySelector('#authForm [name="identifier"]').type = 'email';
+  document.querySelector('#authForm [name="identifier"]').autocomplete = 'email';
   document.querySelector('#authForm [name="password"]').autocomplete = register ? 'new-password' : 'current-password';
   document.querySelector('#authForm [name="password"]').minLength = register ? 10 : 1;
   document.getElementById('authSubmit').textContent = register ? 'Create account' : 'Sign in';
@@ -343,18 +355,66 @@ async function handleAuthSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const formData = new FormData(form);
-  const body = Object.fromEntries(formData.entries());
-  const path = registrationMode ? '/auth/register' : '/auth/login';
-  if (registrationMode) body.email = body.identifier;
+  const values = Object.fromEntries(formData.entries());
   try {
-    const result = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    localStorage.setItem(marketplaceTokenKey, result.token);
+    if (registrationMode) {
+      if (auth.currentUser && localStorage.getItem(pendingRegistrationKey)) {
+        localStorage.setItem(pendingRegistrationKey, JSON.stringify({
+          firstName: values.firstName,
+          lastName: values.lastName,
+          username: values.username
+        }));
+        if (auth.currentUser.emailVerified) {
+          await completePendingRegistration();
+          const result = await api('/auth/me');
+          marketplaceUser = result.user;
+          adminSessionMode = false;
+          renderAccount();
+        } else {
+          showMessage(authMessage, 'Verify your email using the link we sent before continuing.');
+        }
+        return;
+      }
+      const credential = await createUserWithEmailAndPassword(auth, values.identifier, values.password);
+      const profile = {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        username: values.username
+      };
+      localStorage.setItem(pendingRegistrationKey, JSON.stringify(profile));
+      await updateProfile(credential.user, { displayName: `${profile.firstName} ${profile.lastName}`.trim() });
+      await sendEmailVerification(credential.user);
+      showMessage(authMessage, 'Check your email for a verification link. After verifying, return here and sign in.');
+      return;
+    }
+
+    const credential = await signInWithEmailAndPassword(auth, values.identifier, values.password);
+    if (!credential.user.emailVerified) {
+      await sendEmailVerification(credential.user);
+      showMessage(authMessage, 'Verify your email using the link we sent before signing in.');
+      return;
+    }
+    await completePendingRegistration();
+    const result = await api('/auth/me');
     marketplaceUser = result.user;
     adminSessionMode = false;
     renderAccount();
   } catch (error) {
     showMessage(authMessage, error.message, true);
   }
+}
+
+async function completePendingRegistration() {
+  const pending = localStorage.getItem(pendingRegistrationKey);
+  if (!pending) return;
+  const profile = JSON.parse(pending);
+  const result = await api('/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile)
+  });
+  localStorage.removeItem(pendingRegistrationKey);
+  marketplaceUser = result.user;
 }
 
 async function handleAddressSubmit(event) {
@@ -560,10 +620,9 @@ async function signOut() {
     const adminToken = localStorage.getItem('adminToken');
     await fetch('/api/logout', { method: 'POST', headers: { 'x-admin-token': adminToken } });
     localStorage.removeItem('adminToken');
+    await firebaseSignOut(auth);
   } else {
-    const token = localStorage.getItem(marketplaceTokenKey);
-    if (token) await fetch('/api/marketplace/auth/logout', { method: 'POST', headers: { 'x-marketplace-token': token } });
-    localStorage.removeItem(marketplaceTokenKey);
+    await firebaseSignOut(auth);
   }
   location.reload();
 }
@@ -586,21 +645,32 @@ document.getElementById('sellerApplyForm').addEventListener('submit', handleSell
 document.getElementById('categoryForm').addEventListener('submit', handleCategorySubmit);
 
 async function initializeAccount() {
-  const marketplaceToken = localStorage.getItem(marketplaceTokenKey);
   const adminToken = localStorage.getItem('adminToken');
-  const token = marketplaceToken || adminToken;
-  if (!token) return;
+  await auth.authStateReady();
+  const currentUser = adminToken ? null : auth.currentUser;
+  if (!currentUser && !adminToken) return;
   try {
+    if (currentUser) {
+      const tokenResult = await currentUser.getIdTokenResult(true);
+      if (!tokenResult.claims.email_verified) {
+        authPanel.hidden = false;
+        accountPanel.hidden = true;
+        showMessage(authMessage, 'Verify your email using the link we sent, then sign in again.');
+        return;
+      }
+      await completePendingRegistration();
+    }
     const result = await api('/auth/me');
     marketplaceUser = result.user;
-    adminSessionMode = !marketplaceToken && Boolean(adminToken);
+    adminSessionMode = !currentUser && Boolean(adminToken);
     renderAccount();
   } catch (error) {
-    if (error.status === 401 && marketplaceToken) localStorage.removeItem(marketplaceTokenKey);
     if (error.status === 401 && adminToken) localStorage.removeItem('adminToken');
     authPanel.hidden = false;
     accountPanel.hidden = true;
-    showMessage(authMessage, error.status === 401 ? 'Your session expired. Sign in to continue.' : error.message, true);
+    showMessage(authMessage, error.status === 401 && adminToken
+      ? 'Your session expired. Sign in to continue.'
+      : error.message, true);
   }
 }
 
