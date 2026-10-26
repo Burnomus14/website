@@ -622,6 +622,7 @@ function formatKsh(amount) {
 
 let currentCheckout = null;
 let mpesaPollTimer = null;
+let paymentSuccessRedirectTimer = null;
 
 function checkoutCartWithMpesa() {
   reconcileCartWithStock();
@@ -675,6 +676,10 @@ function closeMpesaModal() {
     clearInterval(mpesaPollTimer);
     mpesaPollTimer = null;
   }
+  if (paymentSuccessRedirectTimer) {
+    clearTimeout(paymentSuccessRedirectTimer);
+    paymentSuccessRedirectTimer = null;
+  }
 }
 
 function showMpesaStep(step) {
@@ -716,6 +721,7 @@ async function submitMpesaCheckout(event) {
   submitBtn.textContent = 'Sending prompt...';
   try {
     const accountToken = await getMarketplaceToken();
+    currentCheckout.trackedOrder = Boolean(accountToken);
     const headers = { 'Content-Type': 'application/json' };
     if (accountToken) headers['x-marketplace-token'] = accountToken;
     const res = await fetch('/api/mpesa/stkpush', {
@@ -778,7 +784,18 @@ async function pollPaymentStatus(checkoutRequestId) {
 
 function showPaymentSuccess() {
   showMpesaStep('success');
-  document.getElementById('mpesaSuccessMessage').textContent = 'Payment confirmed. Thank you for your order.';
+  const message = currentCheckout?.trackedOrder
+    ? 'Payment confirmed. Thank you for your order. Taking you to order tracking...'
+    : 'Payment confirmed. This guest order is not linked to account order tracking. Sign in before checkout to track future orders.';
+  document.getElementById('mpesaSuccessMessage').textContent = message;
+  document.getElementById('mpesaTrackOrderLink').textContent = currentCheckout?.trackedOrder
+    ? 'Track your order'
+    : 'Go to account sign in';
+  if (currentCheckout?.trackedOrder) {
+    paymentSuccessRedirectTimer = setTimeout(() => {
+      window.location.assign('/account.html#ordersPanel');
+    }, 2500);
+  }
   if (currentCheckout?.clearCartOnSuccess) {
     cart = [];
     saveCart();
@@ -789,6 +806,10 @@ function showPaymentSuccess() {
 
 function setupMpesaUI() {
   document.getElementById('mpesaPayForm').addEventListener('submit', submitMpesaCheckout);
+  document.getElementById('mpesaTrackOrderLink').addEventListener('click', event => {
+    event.preventDefault();
+    window.location.assign('/account.html#ordersPanel');
+  });
   document.getElementById('closeMpesaModal').addEventListener('click', closeMpesaModal);
   document.getElementById('mpesaCheckoutModal').addEventListener('click', event => {
     if (event.target.id === 'mpesaCheckoutModal') closeMpesaModal();
