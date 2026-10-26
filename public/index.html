@@ -50,6 +50,19 @@
       <option value="name-desc">Name: Z to A</option>
     </select>
   </label>
+  <div class="view-toggle" role="group" aria-label="Collection view">
+    <button class="view-toggle-btn active" type="button" data-view="cards" aria-pressed="true">Cards</button>
+    <button class="view-toggle-btn" type="button" data-view="compact" aria-pressed="false">Compact</button>
+  </div>
+  <label class="columns-control" for="columns-per-row">
+    <span>Cards per row</span>
+    <select id="columns-per-row" aria-label="Cards per row">
+      <option value="2">2</option>
+      <option value="3" selected>3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+    </select>
+  </label>
 </div>
 
 <main class="gallery" id="gallery">

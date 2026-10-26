@@ -1,5 +1,7 @@
 const galleryEl = document.getElementById('gallery');
 const filterBtns = document.querySelectorAll('.filter-btn');
+const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
+const columnsPerRowSelect = document.getElementById('columns-per-row');
 const searchInput = document.getElementById('search-input');
 const clearSearch = document.getElementById('clear-search');
 const searchResultPopup = document.getElementById('search-result-popup');
@@ -9,11 +11,47 @@ let allItems = [];
 let activeFilter = 'all';
 let searchQuery = '';
 let sortOrder = 'newest';
+let collectionView = localStorage.getItem('collection_view') === 'compact' ? 'compact' : 'cards';
+const savedColumnsPerRow = localStorage.getItem('cards_per_row');
+let cardsPerRow = ['2', '3', '4', '5'].includes(savedColumnsPerRow) ? Number(savedColumnsPerRow) : 3;
 let cart = JSON.parse(localStorage.getItem('shoe_cart') || '[]');
 let activeProduct = null;
 let lastFocusedElement = null;
 let activeGalleryImages = [];
 let activeGalleryIndex = 0;
+
+function setCollectionView(view) {
+  collectionView = view === 'compact' ? 'compact' : 'cards';
+  galleryEl.classList.toggle('compact-view', collectionView === 'compact');
+  document.getElementById('filters').classList.toggle('compact-view-active', collectionView === 'compact');
+  viewToggleBtns.forEach(button => {
+    const isActive = button.dataset.view === collectionView;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+  localStorage.setItem('collection_view', collectionView);
+}
+
+function setCardsPerRow(columns) {
+  cardsPerRow = Number(columns);
+  galleryEl.style.setProperty('--gallery-columns', cardsPerRow);
+  galleryEl.classList.toggle('dense-cards', cardsPerRow > 1);
+  columnsPerRowSelect.value = String(cardsPerRow);
+  localStorage.setItem('cards_per_row', String(cardsPerRow));
+}
+
+setCollectionView(collectionView);
+setCardsPerRow(cardsPerRow);
+viewToggleBtns.forEach(button => {
+  button.addEventListener('click', () => {
+    setCollectionView(button.dataset.view);
+    render();
+  });
+});
+columnsPerRowSelect.addEventListener('change', () => {
+  setCardsPerRow(columnsPerRowSelect.value);
+  render();
+});
 
 async function loadItems() {
   try {
@@ -101,7 +139,10 @@ function render() {
         <div class="card-body">
           <span class="card-tag ${item.status}">${statusLabel(item.status)}</span>
           <h3 class="card-name" data-product-id="${item.id}" tabindex="0">${escapeHtml(item.name)}</h3>
-          ${item.caption ? `<p class="card-caption">${escapeHtml(item.caption)}</p>` : ''}
+          ${item.caption ? `<div class="card-caption-wrap">
+            <p class="card-caption">${escapeHtml(item.caption)}</p>
+            ${collectionView === 'cards' && cardsPerRow > 1 ? `<button class="caption-toggle" type="button" data-product-id="${item.id}" aria-label="View ${escapeHtml(item.name)} images and details">Show more</button>` : ''}
+          </div>` : ''}
           ${item.price ? `<div class="card-price">${escapeHtml(item.price)}</div>` : ''}
           <div class="card-actions">
             ${actions}
@@ -115,6 +156,11 @@ function render() {
   });
   galleryEl.querySelectorAll('[data-whatsapp-id]').forEach(button => {
     button.addEventListener('click', () => orderSingleWhatsApp(button.dataset.whatsappId));
+  });
+  galleryEl.querySelectorAll('.caption-toggle').forEach(button => {
+    if (button.previousElementSibling.scrollHeight <= button.previousElementSibling.clientHeight) {
+      button.hidden = true;
+    }
   });
   galleryEl.querySelectorAll('[data-product-id]').forEach(element => {
     element.addEventListener('click', () => openProductModal(element.dataset.productId));
