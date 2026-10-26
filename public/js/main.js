@@ -803,8 +803,17 @@ async function pollPaymentStatus(checkoutRequestId) {
 
 function showPaymentSuccess() {
   showMpesaStep('success');
- feature/inventory-import
-  document.getElementById('mpesaSuccessMessage').textContent = 'Payment confirmed. Thank you for your order.';
+  const message = currentCheckout?.trackedOrder
+    ? 'Payment confirmed. Thank you for your order. Taking you to order tracking...'
+    : 'Payment confirmed. This guest order is not linked to account order tracking. Sign in before checkout to track future orders.';
+  document.getElementById('mpesaSuccessMessage').textContent = message;
+  const trackOrderLink = document.getElementById('mpesaTrackOrderLink');
+  if (trackOrderLink) {
+    trackOrderLink.textContent = currentCheckout?.trackedOrder
+      ? 'Track your order'
+      : 'Go to account sign in';
+  }
+
   const pushBtn = document.getElementById('mpesaPushWhatsappBtn');
   if (pushBtn && currentCheckout) {
     const checkoutCopy = { ...currentCheckout };
@@ -826,19 +835,12 @@ function showPaymentSuccess() {
       const url = `https://api.whatsapp.com/send?phone=${sellerPhoneNumber || '254728074301'}&text=${encodeURIComponent(msg)}`;
       window.open(url, '_blank');
     };
-=======
-  const message = currentCheckout?.trackedOrder
-    ? 'Payment confirmed. Thank you for your order. Taking you to order tracking...'
-    : 'Payment confirmed. This guest order is not linked to account order tracking. Sign in before checkout to track future orders.';
-  document.getElementById('mpesaSuccessMessage').textContent = message;
-  document.getElementById('mpesaTrackOrderLink').textContent = currentCheckout?.trackedOrder
-    ? 'Track your order'
-    : 'Go to account sign in';
+  }
+
   if (currentCheckout?.trackedOrder) {
     paymentSuccessRedirectTimer = setTimeout(() => {
       window.location.assign('/account.html#ordersPanel');
     }, 2500);
-main
   }
   if (currentCheckout?.clearCartOnSuccess) {
     cart = [];
