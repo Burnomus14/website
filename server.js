@@ -54,15 +54,13 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || '';
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const passwordResetRequests = new Map();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
 const localAdmins = new Map();
 localAdmins.set('admin', {
   username: 'admin',
-<<<<<<< HEAD
   role: 'admin',
   title: 'admin',
   password: ADMIN_PASSWORD,
-=======
->>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
   email: 'nsmskipruto@gmail.com'
 });
 
@@ -314,12 +312,9 @@ async function ensureAdminExists() {
     if (snapshot.empty) {
       await adminsRef.doc('main_admin').set({
         username: 'admin',
-<<<<<<< HEAD
         role: 'admin',
         title: 'admin',
         password: hashAdminPassword(ADMIN_PASSWORD),
-=======
->>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
         email: 'nsmskipruto@gmail.com'
       });
       console.log('✅ Admin account seeded in Firebase');
@@ -374,49 +369,46 @@ async function sendAccountPasswordReset(req, res, accountType) {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
-<<<<<<< HEAD
 
-  // Find admin account locally or in Firestore
-  const localAdmin = [...localAdmins.values()].find(admin =>
-    String(admin.email || '').trim().toLowerCase() === email
-  );
+  // Admin password reset check: only send reset link to emails that have the admin title
+  if (accountType === 'admin') {
+    const localAdmin = [...localAdmins.values()].find(admin =>
+      String(admin.email || '').trim().toLowerCase() === email
+    );
 
-  let adminDoc = null;
-  let adminData = localAdmin || null;
+    let adminDoc = null;
+    let adminData = localAdmin || null;
 
-  if (db) {
-    try {
-      const adminsSnapshot = await db.collection('admins').get();
-      adminDoc = adminsSnapshot.docs.find(doc =>
-        String(doc.data().email || '').trim().toLowerCase() === email
-      );
-      if (adminDoc) {
-        adminData = { ...adminDoc.data(), ref: adminDoc.ref };
+    if (db) {
+      try {
+        const adminsSnapshot = await db.collection('admins').get();
+        adminDoc = adminsSnapshot.docs.find(doc =>
+          String(doc.data().email || '').trim().toLowerCase() === email
+        );
+        if (adminDoc) {
+          adminData = { ...adminDoc.data(), ref: adminDoc.ref };
+        }
+      } catch (err) {
+        console.warn('Could not read admins collection:', err.message);
       }
-    } catch (err) {
-      console.warn('Could not read admins collection:', err.message);
+    }
+
+    const hasAdminTitle = Boolean(adminData) && (
+      email.includes('admin') ||
+      String(adminData.title || '').trim().toLowerCase() === 'admin' ||
+      String(adminData.role || '').trim().toLowerCase() === 'admin' ||
+      String(adminData.username || '').trim().toLowerCase() === 'admin'
+    );
+
+    if (!hasAdminTitle) {
+      return res.status(403).json({
+        success: false,
+        message: 'Password reset links can only be sent to emails with the admin title.'
+      });
     }
   }
 
-  // Restrict password reset ONLY to emails that have the admin title
-  const hasAdminTitle = Boolean(adminData) && (
-    email.includes('admin') ||
-    String(adminData.title || '').trim().toLowerCase() === 'admin' ||
-    String(adminData.role || '').trim().toLowerCase() === 'admin' ||
-    String(adminData.username || '').trim().toLowerCase() === 'admin'
-  );
-
-  if (!hasAdminTitle) {
-    return res.status(403).json({
-      success: false,
-      message: 'Password reset links can only be sent to emails with the admin title.'
-    });
-  }
-
-  if (!db || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
-=======
   if (!db || !getApps().length || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
->>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
     return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
   }
 
@@ -431,21 +423,23 @@ async function sendAccountPasswordReset(req, res, accountType) {
 
   const genericResponse = {
     success: true,
-    message: 'If an account matches that email, a password reset link will be sent.'
+    message: accountType === 'admin'
+      ? 'A password reset link has been sent to your admin email.'
+      : 'If an account matches that email, a password reset link will be sent.'
   };
+
   try {
-<<<<<<< HEAD
-    if (!adminDoc) {
-      return res.status(403).json({
-        success: false,
-        message: 'Password reset links can only be sent to emails with the admin title.'
-      });
-    }
-=======
     const collection = accountType === 'admin' ? 'admins' : 'marketplace_users';
     const snapshot = await db.collection(collection).where('email', '==', email).limit(1).get();
-    if (snapshot.empty) return res.status(202).json(genericResponse);
->>>>>>> 72e0530ae6238ae06403f0c99c8f547451165184
+    if (snapshot.empty) {
+      if (accountType === 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Password reset links can only be sent to emails with the admin title.'
+        });
+      }
+      return res.status(202).json(genericResponse);
+    }
 
     const accountDoc = snapshot.docs[0];
     const account = accountDoc.data();
@@ -491,10 +485,7 @@ async function sendAccountPasswordReset(req, res, accountType) {
       console.error('Password reset email provider returned:', emailResponse.status);
       return res.status(202).json(genericResponse);
     }
-    return res.status(200).json({
-      success: true,
-      message: 'A password reset link has been sent to your admin email.'
-    });
+    return res.status(200).json(genericResponse);
   } catch (error) {
     console.error(`${accountType} password reset request failed:`, error.message);
     return res.status(202).json(genericResponse);
