@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  reload,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -12,6 +13,7 @@ const accountPanel = document.getElementById('accountPanel');
 const authForm = document.getElementById('authForm');
 const authMessage = document.getElementById('authMessage');
 const pendingRegistrationKey = 'pendingMarketplaceRegistration';
+const verifiedAccountEmailKey = 'verifiedAccountEmail';
 let marketplaceUser = null;
 let registrationMode = false;
 let adminSessionMode = false;
@@ -364,15 +366,9 @@ async function handleAuthSubmit(event) {
           lastName: values.lastName,
           username: values.username
         }));
-        if (auth.currentUser.emailVerified) {
-          await completePendingRegistration();
-          const result = await api('/auth/me');
-          marketplaceUser = result.user;
-          adminSessionMode = false;
-          renderAccount();
-        } else {
-          showMessage(authMessage, 'Verify your email using the link we sent before continuing.');
-        }
+        if (await finishVerifiedRegistration(auth.currentUser)) return;
+        await sendEmailVerification(auth.currentUser, verificationActionSettings);
+        showMessage(authMessage, 'Check your email and confirm your address to finish creating your account.');
         return;
       }
       const credential = await createUserWithEmailAndPassword(auth, values.identifier, values.password);
@@ -383,17 +379,19 @@ async function handleAuthSubmit(event) {
       };
       localStorage.setItem(pendingRegistrationKey, JSON.stringify(profile));
       await updateProfile(credential.user, { displayName: `${profile.firstName} ${profile.lastName}`.trim() });
-      await sendEmailVerification(credential.user);
-      showMessage(authMessage, 'Check your email for a verification link. After verifying, return here and sign in.');
+      await sendEmailVerification(credential.user, verificationActionSettings);
+      showMessage(authMessage, 'Account created. Check your email and confirm your address to continue.');
       return;
     }
 
     const credential = await signInWithEmailAndPassword(auth, values.identifier, values.password);
+    await reload(credential.user);
     if (!credential.user.emailVerified) {
-      await sendEmailVerification(credential.user);
-      showMessage(authMessage, 'Verify your email using the link we sent before signing in.');
+      await sendEmailVerification(credential.user, verificationActionSettings);
+      showMessage(authMessage, 'Confirm your email using the link we sent before signing in.');
       return;
     }
+    if (await finishVerifiedRegistration(credential.user)) return;
     await completePendingRegistration();
     const result = await api('/auth/me');
     marketplaceUser = result.user;
@@ -402,6 +400,21 @@ async function handleAuthSubmit(event) {
   } catch (error) {
     showMessage(authMessage, error.message, true);
   }
+}
+
+const verificationActionSettings = {
+  url: `${window.location.origin}/account.html`
+};
+
+async function finishVerifiedRegistration(user) {
+  if (!localStorage.getItem(pendingRegistrationKey)) return false;
+  await reload(user);
+  if (!user.emailVerified) return false;
+  await completePendingRegistration();
+  sessionStorage.setItem(verifiedAccountEmailKey, user.email || '');
+  await firebaseSignOut(auth);
+  document.getElementById('accountCreatedDialog').showModal();
+  return true;
 }
 
 async function completePendingRegistration() {
@@ -415,6 +428,7 @@ async function completePendingRegistration() {
   });
   localStorage.removeItem(pendingRegistrationKey);
   marketplaceUser = result.user;
+  return true;
 }
 
 async function handleAddressSubmit(event) {
@@ -643,22 +657,30 @@ document.getElementById('productForm').addEventListener('submit', handleProductS
 document.getElementById('cancelProductEdit').addEventListener('click', () => setProductForm(null));
 document.getElementById('sellerApplyForm').addEventListener('submit', handleSellerApplication);
 document.getElementById('categoryForm').addEventListener('submit', handleCategorySubmit);
+document.getElementById('accountCreatedContinue').addEventListener('click', () => {
+  document.getElementById('accountCreatedDialog').close();
+  window.location.assign('/account.html?auth=signin');
+});
 
 async function initializeAccount() {
   const adminToken = localStorage.getItem('adminToken');
   await auth.authStateReady();
   const currentUser = adminToken ? null : auth.currentUser;
+  const verifiedEmail = sessionStorage.getItem(verifiedAccountEmailKey);
+  if (verifiedEmail) {
+    document.querySelector('#authForm [name="identifier"]').value = verifiedEmail;
+    sessionStorage.removeItem(verifiedAccountEmailKey);
+  }
   if (!currentUser && !adminToken) return;
   try {
     if (currentUser) {
-      const tokenResult = await currentUser.getIdTokenResult(true);
-      if (!tokenResult.claims.email_verified) {
+      if (await finishVerifiedRegistration(currentUser)) return;
+      if (localStorage.getItem(pendingRegistrationKey)) {
         authPanel.hidden = false;
         accountPanel.hidden = true;
-        showMessage(authMessage, 'Verify your email using the link we sent, then sign in again.');
+        showMessage(authMessage, 'Account created. Confirm your email using the link we sent to continue.');
         return;
       }
-      await completePendingRegistration();
     }
     const result = await api('/auth/me');
     marketplaceUser = result.user;
