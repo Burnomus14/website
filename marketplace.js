@@ -685,23 +685,6 @@ function createMarketplace({
       success: false,
       message: 'The shipper platform is coming soon and is currently non-functional.'
     });
-    const orders = await listRecords('orders');
-    const order = orders.find(record => record.id === req.params.orderId);
-    const item = order?.items.find(record => record.id === req.params.itemId);
-    if (!order || !item) return res.status(404).json({ success: false, message: 'Order item not found.' });
-    if (item.status !== 'shipped') return res.status(409).json({ success: false, message: 'The seller must mark this item shipped first.' });
-    if (!req.marketUser.roles.includes('admin')) {
-      const shippers = await listRecords('shippers');
-      const profile = shippers.find(record => record.userId === req.marketUser.id);
-      if (!profile || profile.area.toLowerCase() !== String(order.address?.state || '').toLowerCase()) {
-        return res.status(403).json({ success: false, message: 'This order is outside your assigned delivery area.' });
-      }
-    }
-    item.status = 'delivered';
-    item.deliveredAt = Date.now();
-    order.status = order.items.every(entry => entry.status === 'delivered') ? 'delivered' : 'shipped';
-    await saveRecord('orders', order);
-    res.json({ success: true, order });
   });
 
   router.get('/admin/users', authenticate, requireRole('admin'), async (req, res) => {
