@@ -50,9 +50,6 @@ const productsCollection = db ? db.collection('products') : null;
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
 const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || '';
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const passwordResetRequests = new Map();
 const localAdmins = new Map();
 localAdmins.set('admin', {
@@ -362,17 +359,11 @@ async function sendAccountPasswordReset(req, res, accountType) {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
-  const missingResetConfig = [
-    ...(!db || !getApps().length ? ['FIREBASE_SERVICE_ACCOUNT'] : []),
-    ...(!RESEND_API_KEY ? ['RESEND_API_KEY'] : []),
-    ...(!RESEND_FROM_EMAIL ? ['RESEND_FROM_EMAIL'] : []),
-    ...(!PUBLIC_BASE_URL ? ['PUBLIC_BASE_URL'] : [])
-  ];
-  if (missingResetConfig.length) {
-    console.error(`Password reset unavailable; missing configuration: ${missingResetConfig.join(', ')}`);
+  if (!db || !getApps().length) {
+    console.error('Password reset unavailable; Firebase Admin credentials are not configured.');
     return res.status(503).json({
       success: false,
-      message: 'Password reset is not configured for this site yet. Please contact the store administrator.'
+      message: 'Password reset is temporarily unavailable. Please try again later.'
     });
   }
 
@@ -418,7 +409,8 @@ async function sendAccountPasswordReset(req, res, accountType) {
       ...(accountType === 'admin' ? { password: FieldValue.delete() } : {})
     }, { merge: true });
 
-    const continueUrl = `${PUBLIC_BASE_URL}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
+    return res.status(202).json(genericResponse);
+    const continueUrl = `${req.protocol}://${req.get('host')}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
     const resetUrl = await getAuth().generatePasswordResetLink(email, { url: continueUrl });
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -441,7 +433,10 @@ async function sendAccountPasswordReset(req, res, accountType) {
     return res.status(202).json(genericResponse);
   } catch (error) {
     console.error(`${accountType} password reset request failed:`, error.message);
-    return res.status(202).json(genericResponse);
+    return res.status(503).json({
+      success: false,
+      message: 'Password reset is temporarily unavailable. Please try again later.'
+    });
   }
 }
 
