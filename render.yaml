@@ -30,12 +30,6 @@ services:
         sync: false
       - key: FIREBASE_PROJECT_ID
         value: collection-6d7f6
-      - key: RESEND_API_KEY
-        sync: false
-      - key: RESEND_FROM_EMAIL
-        sync: false
-      - key: PUBLIC_BASE_URL
-        sync: false
       - key: MPESA_ENVIRONMENT
         sync: false
       - key: MPESA_CONSUMER_KEY

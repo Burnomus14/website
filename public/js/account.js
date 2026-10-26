@@ -14,6 +14,7 @@ const authForm = document.getElementById('authForm');
 const authMessage = document.getElementById('authMessage');
 const pendingRegistrationKey = 'pendingMarketplaceRegistration';
 const verifiedAccountEmailKey = 'verifiedAccountEmail';
+const pendingCheckoutKey = 'pendingMarketplaceCheckout';
 let marketplaceUser = null;
 let registrationMode = false;
 let adminSessionMode = false;
@@ -67,6 +68,16 @@ function showMessage(element, message, isError = false) {
   element.classList.toggle('is-error', isError);
 }
 
+function getSignInErrorMessage(error) {
+  if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' ||
+      error.code === 'auth/wrong-password') {
+    return 'Email or password is incorrect. If this is an older account, use “Forgot password?” to set a Firebase password.';
+  }
+  if (error.code === 'auth/invalid-email') return 'Enter a valid email address.';
+  if (error.code === 'auth/too-many-requests') return 'Too many sign-in attempts. Wait a while and try again.';
+  return error.message || 'Unable to sign in. Please try again.';
+}
+
 function showToast(message) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -76,7 +87,11 @@ function showToast(message) {
 
 function setAuthMode(register) {
   registrationMode = register;
-  document.getElementById('registerFields').hidden = !register;
+  const registerFields = document.getElementById('registerFields');
+  registerFields.hidden = !register;
+  registerFields.querySelectorAll('input').forEach(input => {
+    input.disabled = !register;
+  });
   document.getElementById('authHeading').textContent = register ? 'Join the collection.' : 'Sign in to your account.';
   document.getElementById('identifierLabel').textContent = 'Email';
   document.querySelector('#authForm [name="identifier"]').type = 'email';
@@ -130,7 +145,16 @@ function renderAccount() {
     document.querySelector('#sellerApplyForm button').disabled = true;
   }
   setActivePanel('ordersPanel');
+  if (window.location.hash === '#ordersPanel') {
+    document.getElementById('ordersPanel').scrollIntoView({ block: 'start' });
+  }
   loadAccountData().catch(error => showToast(error.message));
+}
+
+function continuePendingCheckout() {
+  if (!auth.currentUser || !sessionStorage.getItem(pendingCheckoutKey)) return false;
+  window.location.assign('/?resumeCheckout=1');
+  return true;
 }
 
 async function loadAccountData() {
@@ -383,6 +407,14 @@ async function handleAuthSubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   const values = Object.fromEntries(formData.entries());
+  const submitButton = document.getElementById('authSubmit');
+  const switchModeButton = document.getElementById('switchAuthMode');
+  const isRegistering = registrationMode;
+  submitButton.disabled = true;
+  submitButton.classList.add('is-loading');
+  submitButton.setAttribute('aria-busy', 'true');
+  submitButton.textContent = isRegistering ? 'Creating account...' : 'Signing in...';
+  switchModeButton.disabled = true;
   try {
     if (registrationMode) {
       if (auth.currentUser && localStorage.getItem(pendingRegistrationKey)) {
@@ -396,7 +428,7 @@ async function handleAuthSubmit(event) {
         showMessage(authMessage, 'Check your email and confirm your address to finish creating your account.');
         return;
       }
-      const credential = await createUserWithEmailAndPassword(auth, values.identifier, values.password);
+      const credential = await createUserWithEmailAndPassword(auth, values.identifier.trim(), values.password);
       const profile = {
         firstName: values.firstName,
         lastName: values.lastName,
@@ -409,7 +441,7 @@ async function handleAuthSubmit(event) {
       return;
     }
 
-    const credential = await signInWithEmailAndPassword(auth, values.identifier, values.password);
+    const credential = await signInWithEmailAndPassword(auth, values.identifier.trim(), values.password);
     await reload(credential.user);
     if (!credential.user.emailVerified) {
       await sendEmailVerification(credential.user, verificationActionSettings);
@@ -422,8 +454,15 @@ async function handleAuthSubmit(event) {
     marketplaceUser = result.user;
     adminSessionMode = false;
     renderAccount();
+    continuePendingCheckout();
   } catch (error) {
-    showMessage(authMessage, error.message, true);
+    showMessage(authMessage, isRegistering ? error.message : getSignInErrorMessage(error), true);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.classList.remove('is-loading');
+    submitButton.removeAttribute('aria-busy');
+    submitButton.textContent = registrationMode ? 'Create account' : 'Sign in';
+    switchModeButton.disabled = false;
   }
 }
 
@@ -721,7 +760,12 @@ async function initializeAccount() {
     document.querySelector('#authForm [name="identifier"]').value = verifiedEmail;
     sessionStorage.removeItem(verifiedAccountEmailKey);
   }
-  if (!currentUser && !adminToken) return;
+  if (!currentUser && !adminToken) {
+    if (new URLSearchParams(window.location.search).get('checkout') === 'signin') {
+      showMessage(authMessage, 'Create an account or sign in before checkout. Your checkout will resume after you sign in.');
+    }
+    return;
+  }
   try {
     if (currentUser) {
       if (await finishVerifiedRegistration(currentUser)) return;
@@ -736,6 +780,7 @@ async function initializeAccount() {
     marketplaceUser = result.user;
     adminSessionMode = !currentUser && Boolean(adminToken);
     renderAccount();
+    continuePendingCheckout();
   } catch (error) {
     if (error.status === 401 && adminToken) localStorage.removeItem('adminToken');
     authPanel.hidden = false;

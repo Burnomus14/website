@@ -50,9 +50,6 @@ const productsCollection = db ? db.collection('products') : null;
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
 const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || '';
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const passwordResetRequests = new Map();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
 const localAdmins = new Map();
@@ -369,6 +366,7 @@ async function sendAccountPasswordReset(req, res, accountType) {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
+<<<<< feature/inventory-import
 
   // Admin password reset check: only send reset link to emails that have the admin title
   if (accountType === 'admin') {
@@ -410,6 +408,14 @@ async function sendAccountPasswordReset(req, res, accountType) {
 
   if (!db || !getApps().length || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
     return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
+=======
+  if (!db || !getApps().length) {
+    console.error('Password reset unavailable; Firebase Admin credentials are not configured.');
+    return res.status(503).json({
+      success: false,
+      message: 'Password reset is temporarily unavailable. Please try again later.'
+    });
+>>>> main
   }
 
   const now = Date.now();
@@ -465,7 +471,8 @@ async function sendAccountPasswordReset(req, res, accountType) {
       ...(accountType === 'admin' ? { password: FieldValue.delete() } : {})
     }, { merge: true });
 
-    const continueUrl = `${PUBLIC_BASE_URL}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
+    return res.status(202).json(genericResponse);
+    const continueUrl = `${req.protocol}://${req.get('host')}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
     const resetUrl = await getAuth().generatePasswordResetLink(email, { url: continueUrl });
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -488,7 +495,10 @@ async function sendAccountPasswordReset(req, res, accountType) {
     return res.status(200).json(genericResponse);
   } catch (error) {
     console.error(`${accountType} password reset request failed:`, error.message);
-    return res.status(202).json(genericResponse);
+    return res.status(503).json({
+      success: false,
+      message: 'Password reset is temporarily unavailable. Please try again later.'
+    });
   }
 }
 
@@ -805,16 +815,17 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
     let marketplaceUser = null;
     let deliveryAddress = null;
     const accountToken = req.headers['x-marketplace-token'] || req.headers['x-auth-token'];
-    if (accountToken) {
-      marketplaceUser = await marketplace.resolveUserToken(accountToken);
-      if (!marketplaceUser) {
-        return res.status(401).json({ success: false, message: 'Your account session has expired. Sign in again to place a tracked order.' });
-      }
-      if (req.body.addressId) {
-        deliveryAddress = await marketplace.findAddress(marketplaceUser.id, String(req.body.addressId));
-        if (!deliveryAddress) {
-          return res.status(400).json({ success: false, message: 'Choose a valid saved delivery address.' });
-        }
+    if (!accountToken) {
+      return res.status(401).json({ success: false, message: 'Create an account or sign in before checkout so you can track your order.' });
+    }
+    marketplaceUser = await marketplace.resolveUserToken(accountToken);
+    if (!marketplaceUser) {
+      return res.status(401).json({ success: false, message: 'Sign in with your verified marketplace account before checkout.' });
+    }
+    if (req.body.addressId) {
+      deliveryAddress = await marketplace.findAddress(marketplaceUser.id, String(req.body.addressId));
+      if (!deliveryAddress) {
+        return res.status(400).json({ success: false, message: 'Choose a valid saved delivery address.' });
       }
     }
     if (!deliveryAddress && req.body.deliveryAddress && typeof req.body.deliveryAddress === 'object') {

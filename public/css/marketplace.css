@@ -10,6 +10,9 @@
 .marketplace-auth-copy > p:not(.marketplace-eyebrow) { color: var(--ink-dim); line-height: 1.65; }
 .marketplace-link-button { margin: 18px 0 0; padding: 0 0 4px; border: 0; border-bottom: 1px solid var(--ink-dim); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
 .marketplace-forgot-link { justify-self: start; color: var(--ink-dim); font-size: 12px; }
+.marketplace-auth .btn.is-loading { display: inline-flex; align-items: center; justify-content: center; gap: 10px; opacity: .75; }
+.marketplace-auth .btn.is-loading::after { width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; content: ""; animation: auth-button-spin .7s linear infinite; }
+@keyframes auth-button-spin { to { transform: rotate(360deg); } }
 .account-created-dialog { width: min(420px, calc(100% - 32px)); padding: 28px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
 .account-created-dialog::backdrop { background: rgba(0, 0, 0, .78); }
 .account-created-dialog h2 { margin: 0 0 12px; font-family: var(--font-display); }

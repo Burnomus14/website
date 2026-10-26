@@ -622,6 +622,8 @@ function formatKsh(amount) {
 
 let currentCheckout = null;
 let mpesaPollTimer = null;
+let paymentSuccessRedirectTimer = null;
+const pendingCheckoutKey = 'pendingMarketplaceCheckout';
 
 function checkoutCartWithMpesa() {
   reconcileCartWithStock();
@@ -645,8 +647,21 @@ function checkoutCartWithMpesa() {
   });
 }
 
-function startMpesaCheckout(order) {
-  currentCheckout = order;
+async function startMpesaCheckout(order) {
+  let accountToken;
+  try {
+    accountToken = await getMarketplaceToken();
+  } catch (error) {
+    showToast(error.message || 'Could not check your account. Please try again.');
+    return;
+  }
+  if (!accountToken) {
+    sessionStorage.setItem(pendingCheckoutKey, JSON.stringify(order));
+    window.location.assign('/account.html?checkout=signin');
+    return;
+  }
+  currentCheckout = { ...order, trackedOrder: true };
+  sessionStorage.removeItem(pendingCheckoutKey);
   const modal = document.getElementById('mpesaCheckoutModal');
   document.getElementById('mpesaOrderTitle').textContent = order.itemName;
   document.getElementById('mpesaOrderPrice').textContent = formatKsh(order.amount);
@@ -674,6 +689,10 @@ function closeMpesaModal() {
   if (mpesaPollTimer) {
     clearInterval(mpesaPollTimer);
     mpesaPollTimer = null;
+  }
+  if (paymentSuccessRedirectTimer) {
+    clearTimeout(paymentSuccessRedirectTimer);
+    paymentSuccessRedirectTimer = null;
   }
 }
 
@@ -716,8 +735,14 @@ async function submitMpesaCheckout(event) {
   submitBtn.textContent = 'Sending prompt...';
   try {
     const accountToken = await getMarketplaceToken();
+    if (!accountToken) {
+      sessionStorage.setItem(pendingCheckoutKey, JSON.stringify(currentCheckout));
+      window.location.assign('/account.html?checkout=signin');
+      return;
+    }
+    currentCheckout.trackedOrder = true;
     const headers = { 'Content-Type': 'application/json' };
-    if (accountToken) headers['x-marketplace-token'] = accountToken;
+    headers['x-marketplace-token'] = accountToken;
     const res = await fetch('/api/mpesa/stkpush', {
       method: 'POST',
       headers,
@@ -778,6 +803,7 @@ async function pollPaymentStatus(checkoutRequestId) {
 
 function showPaymentSuccess() {
   showMpesaStep('success');
+ feature/inventory-import
   document.getElementById('mpesaSuccessMessage').textContent = 'Payment confirmed. Thank you for your order.';
   const pushBtn = document.getElementById('mpesaPushWhatsappBtn');
   if (pushBtn && currentCheckout) {
@@ -800,6 +826,19 @@ function showPaymentSuccess() {
       const url = `https://api.whatsapp.com/send?phone=${sellerPhoneNumber || '254728074301'}&text=${encodeURIComponent(msg)}`;
       window.open(url, '_blank');
     };
+=======
+  const message = currentCheckout?.trackedOrder
+    ? 'Payment confirmed. Thank you for your order. Taking you to order tracking...'
+    : 'Payment confirmed. This guest order is not linked to account order tracking. Sign in before checkout to track future orders.';
+  document.getElementById('mpesaSuccessMessage').textContent = message;
+  document.getElementById('mpesaTrackOrderLink').textContent = currentCheckout?.trackedOrder
+    ? 'Track your order'
+    : 'Go to account sign in';
+  if (currentCheckout?.trackedOrder) {
+    paymentSuccessRedirectTimer = setTimeout(() => {
+      window.location.assign('/account.html#ordersPanel');
+    }, 2500);
+main
   }
   if (currentCheckout?.clearCartOnSuccess) {
     cart = [];
@@ -811,6 +850,10 @@ function showPaymentSuccess() {
 
 function setupMpesaUI() {
   document.getElementById('mpesaPayForm').addEventListener('submit', submitMpesaCheckout);
+  document.getElementById('mpesaTrackOrderLink').addEventListener('click', event => {
+    event.preventDefault();
+    window.location.assign('/account.html#ordersPanel');
+  });
   document.getElementById('closeMpesaModal').addEventListener('click', closeMpesaModal);
   document.getElementById('mpesaCheckoutModal').addEventListener('click', event => {
     if (event.target.id === 'mpesaCheckoutModal') closeMpesaModal();
@@ -850,7 +893,24 @@ async function prepareCheckoutAddresses() {
   }
 }
 
+function resumePendingCheckout() {
+  if (new URLSearchParams(window.location.search).get('resumeCheckout') !== '1') return;
+  const pendingCheckout = sessionStorage.getItem(pendingCheckoutKey);
+  if (!pendingCheckout) return;
+  try {
+    const order = JSON.parse(pendingCheckout);
+    if (!order || !Array.isArray(order.itemLines) || !order.itemLines.length) {
+      throw new Error('The saved checkout details are invalid.');
+    }
+    startMpesaCheckout(order).catch(error => showToast(error.message));
+  } catch (error) {
+    sessionStorage.removeItem(pendingCheckoutKey);
+    showToast(error.message || 'Could not restore your checkout. Please try again.');
+  }
+}
+
 setupCartUI();
 setupMpesaUI();
 updateCartCount();
 loadItems();
+resumePendingCheckout();
