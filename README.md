@@ -1,6 +1,6 @@
 # The Collection
 
-An AMOLED black/white catalog site for your shoe and clothes collection, with a password-protected admin panel to add items, edit captions, and mark pieces as **In stock** or **Sold**.
+An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, shipper fulfillment, and a password-protected admin panel.
 
 ## Setup (in VS Code)
 
@@ -20,6 +20,7 @@ An AMOLED black/white catalog site for your shoe and clothes collection, with a 
    ```
 5. Open the site:
    - Gallery: http://localhost:3000
+   - Customer and marketplace accounts: http://localhost:3000/account.html
    - Admin panel: http://localhost:3000/admin.html
 
 The local `.env` file contains the server port and seller WhatsApp number. It is ignored by Git and should never be committed.
@@ -42,9 +43,18 @@ MPESA_CALLBACK_URL=https://your-public-domain.example/api/mpesa/callback
 
 Create an app in the Safaricom Daraja portal to obtain the consumer key and secret. Use the matching sandbox or production shortcode and passkey. The callback URL must be publicly reachable over HTTPS; local `localhost` URLs cannot receive Daraja callbacks. Set `MPESA_ENVIRONMENT=production` only after the production app and shortcode are approved.
 
+## Marketplace accounts and roles
+
+Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Customers can apply to become sellers; an admin approves seller, shipper, and additional admin roles from **Marketplace** in the admin panel or account page. Sellers manage their own products and shipping queue, while shippers only receive orders assigned to their configured delivery area.
+
+Marketplace data uses Firestore when Firebase credentials are configured. It is stored in the `marketplace_users`, `marketplace_carts`, `marketplace_wishlists`, `marketplace_addresses`, `marketplace_orders`, `marketplace_shippers`, and `marketplace_categories` collections; marketplace passwords are stored as scrypt hashes. Without Firestore credentials, the app uses `data/marketplace.json` for local development, and that file is ignored by Git because it contains personal account and delivery information.
+
+Marketplace sign-in tokens are held in server memory and browser local storage; restarting the server invalidates active sessions. Paid M-Pesa checkouts create order records for signed-in customers and guest purchases alike, but only signed-in customers can view their order history.
+
 ## How it works
 
-- **Data** lives in `data/items.json` — a plain JSON file, human-readable if you want to peek or hand-edit it.
+- **Catalog data** lives in Firestore's `products` collection when Firebase is configured, or `data/items.json` in local fallback mode.
+- **Marketplace accounts and order data** use the Firestore collections documented above, or the ignored `data/marketplace.json` local fallback.
 - **Images** you upload through the admin panel are saved into `public/uploads/`.
 - **Admin sessions** are simple in-memory tokens — signing in gives your browser a token stored in `localStorage`; restarting the server signs everyone out.
 - The public gallery (`/`) only ever reads data — nothing there can add, edit, or delete anything.
@@ -72,7 +82,6 @@ This is a small Node app, so it deploys easily to something like Render, Railway
    - `SELLER_PHONE_NUMBER` = `254728074301`
    - `ADMIN_PASSWORD` = your private admin password
    - `API_SECRET_KEY` = a private random value
-   - `DATABASE_URL` = your database connection string, if used
    - `CLOUDINARY_CLOUD_NAME` = your Cloudinary cloud name
    - `CLOUDINARY_API_KEY` = your Cloudinary API key
    - `CLOUDINARY_API_SECRET` = your Cloudinary API secret

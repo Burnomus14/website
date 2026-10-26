@@ -15,6 +15,7 @@ let collectionView = localStorage.getItem('collection_view') === 'compact' ? 'co
 const savedColumnsPerRow = localStorage.getItem('cards_per_row');
 let cardsPerRow = ['2', '3', '4', '5'].includes(savedColumnsPerRow) ? Number(savedColumnsPerRow) : 3;
 let cart = JSON.parse(localStorage.getItem('shoe_cart') || '[]');
+let marketplaceAddresses = [];
 let activeProduct = null;
 let lastFocusedElement = null;
 let activeGalleryImages = [];
@@ -55,10 +56,20 @@ columnsPerRowSelect.addEventListener('change', () => {
 
 async function loadItems() {
   try {
-    const [itemsRes, configRes] = await Promise.all([fetch('/api/items'), fetch('/api/config')]);
+    const [itemsRes, configRes, categoriesRes] = await Promise.all([
+      fetch('/api/items'),
+      fetch('/api/config'),
+      fetch('/api/marketplace/categories')
+    ]);
+    if (!itemsRes.ok || !configRes.ok || !categoriesRes.ok) {
+      throw new Error('The collection could not be loaded. Please try again.');
+    }
     allItems = await itemsRes.json();
     const config = await configRes.json();
+    const categoryData = await categoriesRes.json();
     sellerPhoneNumber = config.sellerPhone || sellerPhoneNumber;
+    addCategoryFilters(categoryData.categories || []);
+    await loadSignedInCart().catch(error => showToast(error.message));
     reconcileCartWithStock();
     render();
   } catch {
@@ -66,9 +77,33 @@ async function loadItems() {
   }
 }
 
+function addCategoryFilters(categories) {
+  const container = document.getElementById('filters');
+  const existing = new Set(['shoes', 'clothes', 'full outfit']);
+  container.querySelectorAll('[data-category-value]').forEach(button => existing.add(button.dataset.categoryValue));
+  const stockFilter = container.querySelector('[data-filter="in-stock"]');
+  categories.forEach(category => {
+    if (!category.name || existing.has(category.name)) return;
+    const button = document.createElement('button');
+    button.className = 'filter-btn';
+    button.dataset.filter = `category:${category.name}`;
+    button.dataset.categoryValue = category.name;
+    button.textContent = category.name;
+    button.addEventListener('click', () => {
+      container.querySelectorAll('.filter-btn').forEach(filter => filter.classList.remove('active'));
+      button.classList.add('active');
+      activeFilter = button.dataset.filter;
+      render();
+    });
+    container.insertBefore(button, stockFilter);
+    existing.add(category.name);
+  });
+}
+
 function matchesFilter(item) {
   if (activeFilter === 'all') return true;
   if (activeFilter === 'in-stock' || activeFilter === 'sold') return item.status === activeFilter;
+  if (activeFilter.startsWith('category:')) return item.category === activeFilter.slice('category:'.length);
   return item.category === activeFilter;
 }
 
@@ -131,8 +166,10 @@ function render() {
     const media = image ? `<img src="${image}" alt="${escapeHtml(item.name)}" loading="lazy" />` : '<span>No image</span>';
     const actions = isPurchasable(item)
       ? `<button class="btn btn-add-cart" type="button" data-cart-id="${item.id}">Add to basket</button>
+         <button class="btn ghost" type="button" data-wishlist-id="${item.id}">Save</button>
          <button class="btn btn-whatsapp-direct" type="button" data-whatsapp-id="${item.id}">WhatsApp</button>`
-      : `<button class="btn btn-whatsapp-direct" type="button" data-whatsapp-id="${item.id}">WhatsApp</button>`;
+      : `<button class="btn ghost" type="button" data-wishlist-id="${item.id}">Save</button>
+         <button class="btn btn-whatsapp-direct" type="button" data-whatsapp-id="${item.id}">WhatsApp</button>`;
     return `
       <article class="card ${item.status === 'sold' ? 'sold' : ''}" style="animation-delay:${Math.min(i * 40, 400)}ms">
         <div class="card-media ${image ? '' : 'placeholder'}" data-product-id="${item.id}" role="button" tabindex="0" aria-label="View ${escapeHtml(item.name)}">${media}</div>
@@ -156,6 +193,9 @@ function render() {
   });
   galleryEl.querySelectorAll('[data-whatsapp-id]').forEach(button => {
     button.addEventListener('click', () => orderSingleWhatsApp(button.dataset.whatsappId));
+  });
+  galleryEl.querySelectorAll('[data-wishlist-id]').forEach(button => {
+    button.addEventListener('click', () => saveToWishlist(button.dataset.wishlistId));
   });
   galleryEl.querySelectorAll('.caption-toggle').forEach(button => {
     if (button.previousElementSibling.scrollHeight <= button.previousElementSibling.clientHeight) {
@@ -226,6 +266,7 @@ function openProductModal(productId) {
     itemLines: [{ itemId: String(product.id), itemName: product.name, quantity: 1 }],
     image: getItemImages(product)[0] || ''
   });
+  document.getElementById('modal-save-wishlist').onclick = () => saveToWishlist(product.id);
   document.getElementById('modal-buy-whatsapp').onclick = () => orderSingleWhatsApp(product.id);
   modal.hidden = false;
   requestAnimationFrame(() => modal.classList.add('active'));
@@ -308,6 +349,74 @@ function removeFromCart(productId) {
 
 function saveCart() {
   localStorage.setItem('shoe_cart', JSON.stringify(cart));
+  const token = localStorage.getItem('marketplaceToken');
+  if (token) {
+    fetch('/api/marketplace/cart', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-marketplace-token': token },
+      body: JSON.stringify({
+        items: cart.map(item => ({ productId: String(item.id), quantity: Number(item.quantity) }))
+      })
+    }).then(async response => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Could not sync your basket.');
+    }).catch(error => showToast(error.message));
+  }
+}
+
+async function loadSignedInCart() {
+  const token = localStorage.getItem('marketplaceToken');
+  if (!token) return;
+  const response = await fetch('/api/marketplace/cart', { headers: { 'x-marketplace-token': token } });
+  const data = await response.json();
+  if (!response.ok) {
+    if (response.status === 401) localStorage.removeItem('marketplaceToken');
+    throw new Error(data.message || 'Could not load your account basket.');
+  }
+  const merged = new Map();
+  for (const { product, quantity } of data.cart.items) {
+    const current = getCurrentProduct(product.id);
+    if (isPurchasable(current)) {
+      merged.set(String(product.id), { ...current, quantity: Math.min(Number(quantity), Number(current.quantity)) });
+    }
+  }
+  for (const item of cart) {
+    const product = getCurrentProduct(item.id);
+    if (!isPurchasable(product)) continue;
+    const existing = merged.get(String(item.id));
+    const quantity = Math.min(Number(item.quantity) + (existing?.quantity || 0), Number(product.quantity));
+    if (quantity > 0) merged.set(String(item.id), { ...product, quantity });
+  }
+  cart = [...merged.values()];
+  localStorage.setItem('shoe_cart', JSON.stringify(cart));
+  const sync = await fetch('/api/marketplace/cart', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-marketplace-token': token },
+    body: JSON.stringify({ items: cart.map(item => ({ productId: String(item.id), quantity: Number(item.quantity) })) })
+  });
+  if (!sync.ok) {
+    const syncData = await sync.json();
+    throw new Error(syncData.message || 'Could not merge your basket.');
+  }
+}
+
+async function saveToWishlist(productId) {
+  const token = localStorage.getItem('marketplaceToken');
+  if (!token) {
+    window.location.href = '/account.html';
+    return;
+  }
+  try {
+    const response = await fetch(`/api/marketplace/wishlist/${encodeURIComponent(productId)}`, {
+      method: 'PUT',
+      headers: { 'x-marketplace-token': token }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Could not save this piece.');
+    showToast('Saved to your account.');
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function updateCartCount() {
@@ -544,6 +653,12 @@ function startMpesaCheckout(order) {
   thumb.innerHTML = order.image ? `<img src="${order.image}" alt="" />` : '';
   document.getElementById('mpesaFormError').textContent = '';
   document.getElementById('mpesaPayForm').reset();
+  document.getElementById('savedAddressField').hidden = true;
+  document.getElementById('newDeliveryAddressFields').hidden = false;
+  for (const id of ['mpesaDeliveryState', 'mpesaDeliveryCity', 'mpesaDeliveryStreet']) {
+    document.getElementById(id).required = true;
+  }
+  prepareCheckoutAddresses();
   showMpesaStep('input');
   document.getElementById('cart-modal').classList.remove('active');
   closeProductModal();
@@ -579,22 +694,40 @@ async function submitMpesaCheckout(event) {
 
   const customerName = document.getElementById('mpesaCustomerName').value.trim();
   const phoneNumber = document.getElementById('mpesaPhoneNumber').value.trim();
+  const savedAddressId = document.getElementById('mpesaSavedAddress').value;
+  const deliveryAddress = {
+    recipient: customerName,
+    phone: phoneNumber,
+    state: document.getElementById('mpesaDeliveryState').value.trim(),
+    city: document.getElementById('mpesaDeliveryCity').value.trim(),
+    street: document.getElementById('mpesaDeliveryStreet').value.trim(),
+    addressLine: document.getElementById('mpesaDeliveryAddressLine').value.trim(),
+    country: 'Kenya'
+  };
+  if (!savedAddressId && (!deliveryAddress.state || !deliveryAddress.city || !deliveryAddress.street)) {
+    errorEl.textContent = 'Enter a delivery area, city, and street, or choose a saved address.';
+    return;
+  }
   currentCheckout.customerName = customerName;
   currentCheckout.phoneNumber = phoneNumber;
 
   submitBtn.disabled = true;
   submitBtn.textContent = 'Sending prompt...';
   try {
+    const accountToken = localStorage.getItem('marketplaceToken');
+    const headers = { 'Content-Type': 'application/json' };
+    if (accountToken) headers['x-marketplace-token'] = accountToken;
     const res = await fetch('/api/mpesa/stkpush', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         phoneNumber,
         amount: currentCheckout.amount,
         itemName: currentCheckout.itemName,
         customerName,
         itemId: currentCheckout.itemId,
-        itemLines: currentCheckout.itemLines || []
+        itemLines: currentCheckout.itemLines || [],
+        ...(savedAddressId ? { addressId: savedAddressId } : { deliveryAddress })
       })
     });
     const data = await res.json();
@@ -659,6 +792,39 @@ function setupMpesaUI() {
   document.getElementById('mpesaCheckoutModal').addEventListener('click', event => {
     if (event.target.id === 'mpesaCheckoutModal') closeMpesaModal();
   });
+  document.getElementById('mpesaSavedAddress').addEventListener('change', event => {
+    const useSavedAddress = Boolean(event.target.value);
+    document.getElementById('newDeliveryAddressFields').hidden = useSavedAddress;
+    for (const id of ['mpesaDeliveryState', 'mpesaDeliveryCity', 'mpesaDeliveryStreet']) {
+      document.getElementById(id).required = !useSavedAddress;
+    }
+    const address = marketplaceAddresses.find(item => item.id === event.target.value);
+    if (address) {
+      document.getElementById('mpesaCustomerName').value = address.recipient;
+      document.getElementById('mpesaPhoneNumber').value = address.phone;
+    }
+  });
+}
+
+async function prepareCheckoutAddresses() {
+  const token = localStorage.getItem('marketplaceToken');
+  const wrapper = document.getElementById('savedAddressField');
+  const select = document.getElementById('mpesaSavedAddress');
+  wrapper.hidden = !token;
+  select.innerHTML = '<option value="">Enter a new delivery address</option>';
+  marketplaceAddresses = [];
+  if (!token) return;
+  try {
+    const response = await fetch('/api/marketplace/addresses', { headers: { 'x-marketplace-token': token } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Could not load saved addresses.');
+    marketplaceAddresses = data.addresses || [];
+    select.innerHTML += marketplaceAddresses.map(address =>
+      `<option value="${escapeHtml(address.id)}">${escapeHtml([address.recipient, address.street, address.city, address.state].join(' · '))}</option>`
+    ).join('');
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 setupCartUI();

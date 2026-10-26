@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>The Collection</title>
 <link rel="stylesheet" href="/css/style.css" />
+<link rel="stylesheet" href="/css/marketplace.css" />
 </head>
 <body>
 
@@ -13,6 +14,7 @@
   <nav>
     <a href="#gallery" class="active">Archive</a>
     <button class="cart-trigger-btn" id="cart-btn" type="button" aria-label="Open basket">Basket <span class="cart-badge" id="cart-count">0</span></button>
+    <a href="/account.html">Account</a>
     <a href="/admin-login.html">Admin</a>
   </nav>
 </header>
@@ -100,6 +102,7 @@
         <div class="modal-actions" style="flex-wrap:wrap;">
           <button id="modal-buy-mpesa" class="btn btn-mpesa" type="button">Buy with M-Pesa</button>
           <button id="modal-add-cart" class="btn btn-add-cart" type="button">Add to basket</button>
+          <button id="modal-save-wishlist" class="btn ghost" type="button">Save piece</button>
           <button id="modal-buy-whatsapp" class="btn btn-whatsapp-direct" type="button">WhatsApp</button>
         </div>
       </div>
@@ -137,6 +140,32 @@
           <label for="mpesaPhoneNumber">M-Pesa Phone Number</label>
           <input type="tel" id="mpesaPhoneNumber" required placeholder="07XXXXXXXX or 254XXXXXXXXX" autocomplete="tel" />
           <small class="field-hint" style="color:var(--ink-dim); font-size:11.5px; display:block; margin-top:4px;">Enter Safaricom number to receive PIN prompt</small>
+        </div>
+        <div class="field" id="savedAddressField" hidden>
+          <label for="mpesaSavedAddress">Saved delivery address</label>
+          <select id="mpesaSavedAddress">
+            <option value="">Enter a new delivery address</option>
+          </select>
+          <a href="/account.html" class="marketplace-card-link">Manage saved addresses</a>
+        </div>
+        <div id="newDeliveryAddressFields" class="mpesa-delivery-fields">
+          <p class="field-hint">Delivery details</p>
+          <div class="field">
+            <label for="mpesaDeliveryState">Area / county</label>
+            <input type="text" id="mpesaDeliveryState" required autocomplete="address-level1" />
+          </div>
+          <div class="field">
+            <label for="mpesaDeliveryCity">City</label>
+            <input type="text" id="mpesaDeliveryCity" required autocomplete="address-level2" />
+          </div>
+          <div class="field">
+            <label for="mpesaDeliveryStreet">Street</label>
+            <input type="text" id="mpesaDeliveryStreet" required autocomplete="street-address" />
+          </div>
+          <div class="field">
+            <label for="mpesaDeliveryAddressLine">Building / directions (optional)</label>
+            <input type="text" id="mpesaDeliveryAddressLine" />
+          </div>
         </div>
         <div id="mpesaFormError" class="error-msg" style="margin-bottom:10px;"></div>
         <button class="btn" type="submit" id="mpesaSubmitBtn" style="width:100%; background:#00a859; border-color:#00a859; color:#fff; font-weight:700;">Send M-Pesa Prompt</button>

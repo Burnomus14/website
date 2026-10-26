@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Account — The Collection</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/marketplace.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand">THE<span>&nbsp;COLLECTION</span></a>
+    <nav>
+      <a href="/">Archive</a>
+      <a href="/account.html" class="active">Account</a>
+      <a href="/admin-login.html">Admin</a>
+    </nav>
+  </header>
+
+  <main class="marketplace-page">
+    <section class="marketplace-heading">
+      <p class="marketplace-eyebrow">THE COLLECTION / ACCOUNT</p>
+      <h1>Make it yours.</h1>
+      <p>Orders, saved pieces, delivery details, and shop tools in one place.</p>
+    </section>
+
+    <section class="marketplace-auth" id="authPanel">
+      <div class="marketplace-auth-copy">
+        <p class="marketplace-eyebrow">MEMBER ACCESS</p>
+        <h2 id="authHeading">Sign in to your account.</h2>
+        <p>Keep your basket, save pieces, and follow every order from paid to delivered.</p>
+        <button class="marketplace-link-button" type="button" id="switchAuthMode">Create an account</button>
+      </div>
+      <form id="authForm" class="marketplace-form">
+        <div id="registerFields" hidden>
+          <div class="marketplace-form-grid">
+            <label class="field">First name<input name="firstName" autocomplete="given-name" required /></label>
+            <label class="field">Last name<input name="lastName" autocomplete="family-name" required /></label>
+            <label class="field">Username<input name="username" autocomplete="username" required /></label>
+          </div>
+        </div>
+        <label class="field"><span id="identifierLabel">Email or username</span><input name="identifier" autocomplete="username" required /></label>
+        <label class="field">Password<input name="password" type="password" minlength="10" autocomplete="current-password" required /></label>
+        <p class="marketplace-message" id="authMessage" role="status"></p>
+        <button class="btn" type="submit" id="authSubmit">Sign in</button>
+      </form>
+    </section>
+
+    <section class="marketplace-dashboard" id="accountPanel" hidden>
+      <div class="marketplace-account-heading">
+        <div>
+          <p class="marketplace-eyebrow" id="roleLabel">MEMBER ACCOUNT</p>
+          <h2 id="welcomeName"></h2>
+          <p id="accountEmail" class="marketplace-muted"></p>
+        </div>
+        <div class="marketplace-account-actions">
+          <a href="/" class="btn ghost">Back to archive</a>
+          <button type="button" class="btn ghost" id="signOutButton">Sign out</button>
+        </div>
+      </div>
+
+      <nav class="marketplace-tabs" aria-label="Account sections">
+        <button class="marketplace-tab" type="button" data-panel="profilePanel">Profile</button>
+        <button class="marketplace-tab active" type="button" data-panel="ordersPanel">Orders</button>
+        <button class="marketplace-tab" type="button" data-panel="updatesPanel">Updates</button>
+        <button class="marketplace-tab" type="button" data-panel="cartPanel">Basket</button>
+        <button class="marketplace-tab" type="button" data-panel="wishlistPanel">Saved pieces</button>
+        <button class="marketplace-tab" type="button" data-panel="addressesPanel">Addresses</button>
+        <button class="marketplace-tab" type="button" data-panel="sellerPanel" data-role-tab="seller" hidden>Seller</button>
+        <button class="marketplace-tab" type="button" data-panel="shipperPanel" data-role-tab="shipper" hidden>Delivery</button>
+        <button class="marketplace-tab" type="button" data-panel="adminPanel" data-role-tab="admin" hidden>Management</button>
+      </nav>
+
+      <section class="marketplace-content-panel" id="profilePanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">YOUR DETAILS</p><h3>Account information</h3></div></div>
+        <form id="profileForm" class="marketplace-form marketplace-address-form">
+          <div class="marketplace-form-grid">
+            <label class="field">First name<input name="firstName" autocomplete="given-name" required /></label>
+            <label class="field">Last name<input name="lastName" autocomplete="family-name" required /></label>
+            <label class="field">Username<input name="username" autocomplete="username" required /></label>
+            <label class="field">Email<input name="email" type="email" disabled /></label>
+          </div>
+          <button class="btn" type="submit">Save profile</button>
+          <p class="marketplace-message" id="profileMessage" role="status"></p>
+        </form>
+      </section>
+
+      <section class="marketplace-content-panel" id="ordersPanel">
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">ORDER FLOW</p><h3>Your orders</h3></div><button class="btn ghost" type="button" data-refresh="orders">Refresh</button></div>
+        <div class="marketplace-record-list" id="ordersList"></div>
+      </section>
+
+      <section class="marketplace-content-panel" id="updatesPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">WHAT'S MOVING</p><h3>Updates</h3></div></div>
+        <div class="marketplace-record-list" id="updatesList"></div>
+      </section>
+
+      <section class="marketplace-content-panel" id="cartPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">READY WHEN YOU ARE</p><h3>Basket</h3></div><a href="/" class="btn ghost">Continue browsing</a></div>
+        <div class="marketplace-record-list" id="accountCartList"></div>
+      </section>
+
+      <section class="marketplace-content-panel" id="wishlistPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">KEPT CLOSE</p><h3>Saved pieces</h3></div></div>
+        <div class="marketplace-record-list" id="wishlistList"></div>
+      </section>
+
+      <section class="marketplace-content-panel" id="addressesPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">DELIVERY DETAILS</p><h3>Addresses</h3></div></div>
+        <form id="addressForm" class="marketplace-form marketplace-address-form">
+          <input type="hidden" name="id" />
+          <div class="marketplace-form-grid">
+            <label class="field">Recipient<input name="recipient" autocomplete="name" required /></label>
+            <label class="field">Phone<input name="phone" autocomplete="tel" required /></label>
+            <label class="field">Area / county<input name="state" required /></label>
+            <label class="field">City<input name="city" required /></label>
+            <label class="field">Street<input name="street" required /></label>
+            <label class="field">Building / directions<input name="addressLine" /></label>
+          </div>
+          <div class="marketplace-form-actions"><button class="btn" type="submit">Save address</button><button class="btn ghost" id="cancelAddressEdit" type="button" hidden>Cancel edit</button></div>
+          <p class="marketplace-message" id="addressMessage" role="status"></p>
+        </form>
+        <div class="marketplace-record-list" id="addressesList"></div>
+      </section>
+
+      <section class="marketplace-content-panel" id="sellerPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">SELLER STUDIO</p><h3>Your products</h3></div></div>
+        <form id="productForm" class="marketplace-form marketplace-product-form">
+          <input type="hidden" name="id" />
+          <div class="marketplace-form-grid">
+            <label class="field">Name<input name="name" required /></label>
+            <label class="field">Category<input name="category" list="marketplaceCategories" required /><datalist id="marketplaceCategories"></datalist></label>
+            <label class="field">Price (KSh)<input name="price" type="number" min="1" step="1" required /></label>
+            <label class="field">Quantity<input name="quantity" type="number" min="0" step="1" required /></label>
+            <label class="field span-all">Caption<textarea name="caption" rows="3"></textarea></label>
+            <label class="field span-all">Images<input name="images" type="file" accept="image/*" multiple /></label>
+          </div>
+          <div class="marketplace-form-actions"><button class="btn" type="submit">Save product</button><button class="btn ghost" id="cancelProductEdit" type="button" hidden>Cancel edit</button></div>
+          <p class="marketplace-message" id="productMessage" role="status"></p>
+        </form>
+        <div class="marketplace-record-list" id="sellerProductsList"></div>
+        <div class="marketplace-section-heading marketplace-subheading"><div><p class="marketplace-eyebrow">FULFILLMENT</p><h3>Orders to ship</h3></div></div>
+        <div class="marketplace-record-list" id="sellerOrdersList"></div>
+        <form id="sellerApplyForm" class="marketplace-form marketplace-application" hidden>
+          <h3>Apply to sell</h3><label class="field">Tell us about your collection<textarea name="note" rows="3"></textarea></label>
+          <button class="btn" type="submit">Submit seller application</button><p class="marketplace-message" id="sellerApplyMessage"></p>
+        </form>
+      </section>
+
+      <section class="marketplace-content-panel" id="shipperPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">LAST MILE</p><h3>Deliveries in your area</h3></div></div>
+        <div class="marketplace-record-list" id="shipperOrdersList"></div>
+      </section>
+
+      <section class="marketplace-content-panel" id="adminPanel" hidden>
+        <div class="marketplace-section-heading"><div><p class="marketplace-eyebrow">CONTROL ROOM</p><h3>Marketplace management</h3></div></div>
+        <div class="marketplace-stats" id="marketplaceStats"></div>
+        <div class="marketplace-section-heading marketplace-subheading"><div><p class="marketplace-eyebrow">ACCESS</p><h3>Accounts and roles</h3></div></div>
+        <div class="marketplace-record-list" id="usersList"></div>
+        <div class="marketplace-section-heading marketplace-subheading"><div><p class="marketplace-eyebrow">DELIVERY NETWORK</p><h3>Shipper profiles</h3></div></div>
+        <div class="marketplace-record-list" id="shippersList"></div>
+        <form id="categoryForm" class="marketplace-form marketplace-category-form">
+          <h3>Manage product categories</h3>
+          <div class="marketplace-inline-form"><label class="field">Category name<input name="name" required /></label><label class="field">Description<input name="description" /></label><button class="btn" type="submit">Add category</button></div>
+          <p class="marketplace-message" id="categoryMessage"></p>
+        </form>
+        <div class="marketplace-record-list" id="categoriesList"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="footer-copyright">Copyright 2026</p>
+    <div class="footer-signature">schngor</div>
+    <p>Managed from the <a href="/admin-login.html">admin panel</a>.</p>
+  </footer>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/js/account.js"></script>
+</body>
+</html>

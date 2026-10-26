@@ -1,6 +1,7 @@
 node_modules/
 .env
 firebase-key.json
+data/marketplace.json
 public/uploads/*
 !public/uploads/.gitkeep
 android-app/.gradle/
