@@ -77,7 +77,11 @@ function showToast(message) {
 
 function setAuthMode(register) {
   registrationMode = register;
-  document.getElementById('registerFields').hidden = !register;
+  const registerFields = document.getElementById('registerFields');
+  registerFields.hidden = !register;
+  registerFields.querySelectorAll('input').forEach(input => {
+    input.disabled = !register;
+  });
   document.getElementById('authHeading').textContent = register ? 'Join the collection.' : 'Sign in to your account.';
   document.getElementById('identifierLabel').textContent = 'Email';
   document.querySelector('#authForm [name="identifier"]').type = 'email';
