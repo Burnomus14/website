@@ -57,6 +57,16 @@ function showMessage(element, message, isError = false) {
   element.classList.toggle('is-error', isError);
 }
 
+function getSignInErrorMessage(error) {
+  if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' ||
+      error.code === 'auth/wrong-password') {
+    return 'Email or password is incorrect. If this is an older account, use “Forgot password?” to set a Firebase password.';
+  }
+  if (error.code === 'auth/invalid-email') return 'Enter a valid email address.';
+  if (error.code === 'auth/too-many-requests') return 'Too many sign-in attempts. Wait a while and try again.';
+  return error.message || 'Unable to sign in. Please try again.';
+}
+
 function showToast(message) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -371,7 +381,7 @@ async function handleAuthSubmit(event) {
         showMessage(authMessage, 'Check your email and confirm your address to finish creating your account.');
         return;
       }
-      const credential = await createUserWithEmailAndPassword(auth, values.identifier, values.password);
+      const credential = await createUserWithEmailAndPassword(auth, values.identifier.trim(), values.password);
       const profile = {
         firstName: values.firstName,
         lastName: values.lastName,
@@ -384,7 +394,7 @@ async function handleAuthSubmit(event) {
       return;
     }
 
-    const credential = await signInWithEmailAndPassword(auth, values.identifier, values.password);
+    const credential = await signInWithEmailAndPassword(auth, values.identifier.trim(), values.password);
     await reload(credential.user);
     if (!credential.user.emailVerified) {
       await sendEmailVerification(credential.user, verificationActionSettings);
@@ -398,7 +408,7 @@ async function handleAuthSubmit(event) {
     adminSessionMode = false;
     renderAccount();
   } catch (error) {
-    showMessage(authMessage, error.message, true);
+    showMessage(authMessage, registrationMode ? error.message : getSignInErrorMessage(error), true);
   }
 }
 

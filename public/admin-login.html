@@ -83,7 +83,13 @@
                 localStorage.setItem('adminToken', data.token);
                 window.location.href = '/admin.html';
             } catch (error) {
-                errorMsg.textContent = error.message || 'Unable to sign in';
+                if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(error.code)) {
+                    errorMsg.textContent = 'Email or password is incorrect. Use “Forgot Password?” to reset your password.';
+                } else if (error.code === 'auth/too-many-requests') {
+                    errorMsg.textContent = 'Too many sign-in attempts. Wait a while and try again.';
+                } else {
+                    errorMsg.textContent = error.message || 'Unable to sign in';
+                }
             }
         });
     </script>
