@@ -366,7 +366,6 @@ async function sendAccountPasswordReset(req, res, accountType) {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
   }
-<<<<< feature/inventory-import
 
   // Admin password reset check: only send reset link to emails that have the admin title
   if (accountType === 'admin') {
@@ -406,16 +405,12 @@ async function sendAccountPasswordReset(req, res, accountType) {
     }
   }
 
-  if (!db || !getApps().length || !RESEND_API_KEY || !RESEND_FROM_EMAIL || !PUBLIC_BASE_URL) {
-    return res.status(503).json({ success: false, message: 'Password reset is temporarily unavailable.' });
-=======
   if (!db || !getApps().length) {
     console.error('Password reset unavailable; Firebase Admin credentials are not configured.');
     return res.status(503).json({
       success: false,
       message: 'Password reset is temporarily unavailable. Please try again later.'
     });
->>>> main
   }
 
   const now = Date.now();
@@ -471,27 +466,29 @@ async function sendAccountPasswordReset(req, res, accountType) {
       ...(accountType === 'admin' ? { password: FieldValue.delete() } : {})
     }, { merge: true });
 
-    return res.status(202).json(genericResponse);
-    const continueUrl = `${req.protocol}://${req.get('host')}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
-    const resetUrl = await getAuth().generatePasswordResetLink(email, { url: continueUrl });
-    const emailResponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: RESEND_FROM_EMAIL,
-        to: [email],
-        subject: accountType === 'admin' ? 'Reset your admin password' : 'Reset your password',
-        text: `Use this link to reset your password.\n\n${resetUrl}`,
-        html: `<p>Use the link below to reset your password.</p><p><a href="${resetUrl}">Reset password</a></p>`
-      })
-    });
-    if (!emailResponse.ok) {
-      console.error('Password reset email provider returned:', emailResponse.status);
-      return res.status(202).json(genericResponse);
+    if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
+      try {
+        const continueUrl = `${req.protocol}://${req.get('host')}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
+        const resetUrl = await getAuth().generatePasswordResetLink(email, { url: continueUrl });
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from: RESEND_FROM_EMAIL,
+            to: [email],
+            subject: accountType === 'admin' ? 'Reset your admin password' : 'Reset your password',
+            text: `Use this link to reset your password.\n\n${resetUrl}`,
+            html: `<p>Use the link below to reset your password.</p><p><a href="${resetUrl}">Reset password</a></p>`
+          })
+        });
+      } catch (emailErr) {
+        console.warn('Optional Resend dispatch note:', emailErr.message);
+      }
     }
+
     return res.status(200).json(genericResponse);
   } catch (error) {
     console.error(`${accountType} password reset request failed:`, error.message);
