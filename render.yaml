@@ -1,6 +1,7 @@
 services:
   - type: web
     name: shoe-collection-site
+    branch: feature/inventory-import
     runtime: node
     buildCommand: npm install
     startCommand: npm start
