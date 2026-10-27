@@ -47,7 +47,7 @@ Create an app in the Safaricom Daraja portal to obtain the consumer key and secr
 
  feature/inventory-import
 Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Active orders can be pushed to WhatsApp for a quicker response from the seller; delivered items no longer show that action. Each order has a unique tracking ID. Customer and admin passwords are managed by Firebase Authentication; account profiles and marketplace roles remain in Firestore. Email verification is required before sign-in. Customers can apply to become sellers; an admin approves seller and shipper roles from the standalone **Marketplace** page in the admin navigation. Sellers can add and edit their own catalog products and mark their orders shipped. Admins configure shipper delivery areas; assigned shippers can mark shipped orders delivered from their account.
-=======
+
 Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Customer and admin passwords are managed by Firebase Authentication; account profiles and marketplace roles remain in Firestore. Email verification is required before sign-in. Customers can apply to become sellers; an admin approves seller, shipper, and additional admin roles from **Marketplace** in the admin panel or account page. Sellers manage their own products and shipping queue, while shippers only receive orders assigned to their configured delivery area.
  main
 
