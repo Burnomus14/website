@@ -74,7 +74,12 @@
         <button class="marketplace-tab" type="button" data-panel="wishlistPanel">Saved pieces</button>
         <button class="marketplace-tab" type="button" data-panel="addressesPanel">Addresses</button>
         <button class="marketplace-tab" type="button" data-panel="sellerPanel" data-role-tab="seller" hidden>Seller</button>
+ feature/inventory-import
         <button class="marketplace-tab" type="button" data-panel="shipperPanel" data-role-tab="shipper" hidden>Delivery</button>
+=======
+        <button class="marketplace-tab" type="button" data-panel="shipperPanel" data-role-tab="shipper" hidden>Delivery <span class="tab-badge-soon">Coming Soon</span></button>
+        <button class="marketplace-tab" type="button" data-panel="adminPanel" data-role-tab="admin" hidden>Management</button>
+ main
       </nav>
 
       <section class="marketplace-content-panel" id="profilePanel" hidden>
@@ -164,6 +169,26 @@
         <div class="marketplace-record-list" id="shipperOrdersList"></div>
       </section>
 
+      <section class="marketplace-content-panel" id="adminPanel" hidden>
+        <div class="marketplace-section-heading">
+          <div>
+            <p class="marketplace-eyebrow">CONTROL ROOM</p>
+            <h3>Marketplace management</h3>
+          </div>
+          <a href="/admin-marketplace.html" class="btn ghost">Open in Admin Panel Tab →</a>
+        </div>
+        <div class="marketplace-stats" id="marketplaceStats"></div>
+        <div class="marketplace-section-heading marketplace-subheading"><div><p class="marketplace-eyebrow">ACCESS</p><h3>Accounts and roles</h3></div></div>
+        <div class="marketplace-record-list" id="usersList"></div>
+        <div class="marketplace-section-heading marketplace-subheading"><div><p class="marketplace-eyebrow">DELIVERY NETWORK</p><h3>Shipper profiles</h3></div></div>
+        <div class="marketplace-record-list" id="shippersList"></div>
+        <form id="categoryForm" class="marketplace-form marketplace-category-form">
+          <h3>Manage product categories</h3>
+          <div class="marketplace-inline-form"><label class="field">Category name<input name="name" required /></label><label class="field">Description<input name="description" /></label><button class="btn" type="submit">Add category</button></div>
+          <p class="marketplace-message" id="categoryMessage"></p>
+        </form>
+        <div class="marketplace-record-list" id="categoriesList"></div>
+      </section>
     </section>
   </main>
 
