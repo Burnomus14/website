@@ -7,18 +7,6 @@
 <link rel="stylesheet" href="/css/style.css" />
 <link rel="stylesheet" href="/css/marketplace.css" />
 <style>
-  .admin-badge-soon {
-    display: inline-block;
-    padding: 3px 8px;
-    background: #2a2210;
-    border: 1px solid #7a5e20;
-    color: #e0b87a;
-    font-size: 11px;
-    border-radius: 3px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    font-weight: 600;
-  }
   .admin-section-box {
     margin-bottom: 40px;
     padding: 24px;
@@ -38,23 +26,6 @@
     color: var(--ink-dim);
     font-size: 13px;
     margin: -8px 0 16px;
-  }
-  .coming-soon-banner {
-    padding: 24px;
-    border: 1px dashed #554420;
-    background: #141108;
-    color: #c9ab6f;
-    border-radius: 4px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  .coming-soon-banner p {
-    margin: 4px 0 0;
-    font-size: 13px;
-    color: var(--ink-dim);
-    line-height: 1.5;
   }
 </style>
 </head>
@@ -97,17 +68,8 @@
 
     <!-- Delivery Network / Shippers -->
     <section class="admin-section-box">
-      <h2>
-        Delivery Network & Shippers
-        <span class="admin-badge-soon">Coming Soon</span>
-      </h2>
-      <div class="coming-soon-banner">
-        <span style="font-size: 24px;">🚚</span>
-        <div>
-          <strong style="color: #e0b87a; font-size: 14px;">Shipper platform is currently paused and non-functional</strong>
-          <p>The delivery partner infrastructure is currently undergoing maintenance and updates. Deliveries cannot be marked as delivered at this time.</p>
-        </div>
-      </div>
+      <h2>Delivery Network & Shippers</h2>
+      <p class="section-sub">Assign active shippers to delivery areas. Shipped orders in each area appear in the shipper's account.</p>
       <div class="marketplace-record-list" id="shippersList"></div>
     </section>
 
@@ -146,4 +108,3 @@
 <script src="/js/admin-marketplace.js"></script>
 </body>
 </html>
-

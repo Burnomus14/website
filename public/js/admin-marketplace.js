@@ -122,13 +122,16 @@ async function loadMarketplaceOrders() {
       <div class="marketplace-record-main">
         <div>
           <h4>Order ${escapeHtml(order.id.slice(0, 10))} · KSh ${Number(order.totalPrice || 0).toLocaleString()}</h4>
+          <p>Tracking ID: <strong>${escapeHtml(order.trackingId || `TC-${order.id}`)}</strong></p>
           <p>${new Date(order.createdAt).toLocaleString()} · Status: <strong>${escapeHtml(order.status)}</strong> · Payment: ${escapeHtml(order.paymentStatus || 'unknown')}</p>
           <p>Customer: ${escapeHtml(order.address?.recipient || order.customerName || 'Customer')} · Phone: ${escapeHtml(order.phoneNumber || order.address?.phone || '—')}</p>
           <p>Address: ${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address recorded')}</p>
           <div class="marketplace-order-lines">
             ${(order.items || []).map(item => `
-              <div class="marketplace-order-line">
+              <div class="marketplace-order-line marketplace-order-line-content">
                 <p><strong>${escapeHtml(item.name)}</strong> · Qty ${Number(item.quantity)} · Status: ${escapeHtml(item.status)}</p>
+                ${item.status === 'pending' ? `<button class="btn ghost" type="button" data-action="ship" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark shipped</button>` : ''}
+                ${item.status === 'shipped' ? `<button class="btn ghost" type="button" data-action="deliver" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark delivered</button>` : ''}
               </div>
             `).join('')}
           </div>
@@ -164,22 +167,38 @@ async function loadAllMarketplaceData() {
   }
 }
 
+document.getElementById('marketplaceOrdersList').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-action="ship"], [data-action="deliver"]');
+  if (!button) return;
+  const action = button.dataset.action;
+  const orderId = button.dataset.orderId;
+  const itemId = button.dataset.itemId;
+  try {
+    await api(`/orders/${encodeURIComponent(orderId)}/items/${encodeURIComponent(itemId)}/${action}`, { method: 'PATCH' });
+    showToast(action === 'ship' ? 'Order item marked as shipped.' : 'Order item marked as delivered.');
+    await loadMarketplaceOrders();
+    await loadStats();
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
 // User role checkbox handling
 document.getElementById('usersList').addEventListener('change', async (event) => {
   if (event.target.type !== 'checkbox') return;
   const userId = event.target.dataset.userId;
-  const role = event.target.dataset.role;
-  const granted = event.target.checked;
+  const userContainer = event.target.closest('.marketplace-record');
+  const roles = ['customer', ...[...userContainer.querySelectorAll('[data-role]:checked')].map(input => input.dataset.role)];
   try {
-    await api(`/admin/users/${encodeURIComponent(userId)}/role`, {
-      method: 'POST',
+    await api(`/admin/users/${encodeURIComponent(userId)}/roles`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, granted })
+      body: JSON.stringify({ roles })
     });
-    showToast(`Role ${role} ${granted ? 'granted' : 'revoked'}.`);
+    showToast('Account roles updated.');
     await Promise.all([loadUsers(), loadShippers(), loadStats()]);
   } catch (err) {
-    event.target.checked = !granted;
+    event.target.checked = !event.target.checked;
     showToast(err.message);
   }
 });
@@ -253,4 +272,3 @@ document.getElementById('signOutBtn').addEventListener('click', async () => {
 });
 
 loadAllMarketplaceData();
-
