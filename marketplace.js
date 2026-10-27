@@ -148,6 +148,22 @@ function createMarketplace({
     return crypto.randomBytes(12).toString('hex');
   }
 
+  function getTrackingId(orderId) {
+    return `TC-${Buffer.from(String(orderId), 'utf8').toString('hex').toUpperCase()}`;
+  }
+
+  function getOrderStatus(items) {
+    if (items.every(item => item.status === 'delivered')) return 'delivered';
+    if (items.every(item => item.status === 'shipped' || item.status === 'delivered')) return 'shipped';
+    return items.some(item => item.status !== 'pending') ? 'processing' : 'pending';
+  }
+
+  async function ensureOrderTrackingId(order) {
+    if (order.trackingId) return;
+    order.trackingId = getTrackingId(order.id);
+    await saveRecord('orders', order);
+  }
+
   async function getCatalogItem(id) {
     const items = await readCatalogItems();
     return items.find(item => String(item.id) === String(id)) || null;
@@ -174,7 +190,13 @@ function createMarketplace({
     if (orderId) {
       const orders = await listRecords('orders');
       const existing = orders.find(order => order.id === orderId);
-      if (existing) return existing;
+      if (existing) {
+        if (!existing.trackingId) {
+          existing.trackingId = getTrackingId(existing.id);
+          await saveRecord('orders', existing);
+        }
+        return existing;
+      }
     }
 
     const productItems = await readCatalogItems();
@@ -195,6 +217,7 @@ function createMarketplace({
     });
     const order = {
       id: orderId,
+      trackingId: getTrackingId(orderId),
       userId: transaction.marketplaceUserId || null,
       customerName: cleanText(transaction.customerName, 120) || 'Guest customer',
       phoneNumber: cleanText(transaction.phoneNumber, 20),
@@ -633,6 +656,9 @@ function createMarketplace({
 
   router.get('/orders', authenticate, async (req, res) => {
     const orders = await listRecords('orders');
+    for (const order of orders) {
+      await ensureOrderTrackingId(order);
+    }
     const user = req.marketUser;
     let visible;
     if (user.roles.includes('admin')) visible = orders;
@@ -647,22 +673,44 @@ function createMarketplace({
           if (sellerItems.length && !orderMap.has(order.id)) orderMap.set(order.id, { ...order, items: sellerItems });
         });
       }
-      if (user.roles.includes('shipper')) {
-        const shippers = await listRecords('shippers');
-        const profile = shippers.find(record => record.userId === user.id);
-        if (profile?.area) {
-          orders.filter(order => order.address?.state?.toLowerCase() === profile.area.toLowerCase())
-            .forEach(order => {
-              if (!orderMap.has(order.id)) {
-                orderMap.set(order.id, { ...order, items: order.items.filter(item => item.status === 'shipped' || item.status === 'delivered') });
-              }
-            });
-        }
-      }
       visible = [...orderMap.values()].filter(order => order.items.length);
     }
     visible.sort((a, b) => b.createdAt - a.createdAt);
     res.json({ success: true, orders: visible });
+  });
+
+  router.get('/seller/orders', authenticate, requireRole('seller'), async (req, res) => {
+    const orders = await listRecords('orders');
+    const visible = [];
+    for (const order of orders) {
+      const sellerItems = order.items.filter(item => item.sellerId === req.marketUser.id);
+      if (!sellerItems.length) continue;
+      await ensureOrderTrackingId(order);
+      visible.push({ ...order, items: sellerItems });
+    }
+    visible.sort((a, b) => b.createdAt - a.createdAt);
+    res.json({ success: true, orders: visible });
+  });
+
+  router.get('/shipper/orders', authenticate, requireRole('shipper', 'admin'), async (req, res) => {
+    const orders = await listRecords('orders');
+    const shippers = await listRecords('shippers');
+    const profile = shippers.find(record => record.userId === req.marketUser.id);
+    const area = String(profile?.area || '').trim().toLowerCase();
+    const visible = req.marketUser.roles.includes('admin')
+      ? orders
+      : area
+        ? orders.filter(order => String(order.address?.state || '').trim().toLowerCase() === area)
+        : [];
+    for (const order of visible) {
+      await ensureOrderTrackingId(order);
+    }
+    const deliveries = visible.map(order => ({
+      ...order,
+      items: order.items.filter(item => item.status === 'shipped' || item.status === 'delivered')
+    })).filter(order => order.items.length);
+    deliveries.sort((a, b) => b.createdAt - a.createdAt);
+    res.json({ success: true, orders: deliveries });
   });
 
   router.patch('/orders/:orderId/items/:itemId/ship', authenticate, requireRole('seller', 'admin'), async (req, res) => {
@@ -673,33 +721,53 @@ function createMarketplace({
     if (!req.marketUser.roles.includes('admin') && item.sellerId !== req.marketUser.id) {
       return res.status(403).json({ success: false, message: 'You can only update your own order items.' });
     }
+    if (item.status !== 'pending') {
+      return res.status(409).json({ success: false, message: 'Only pending order items can be marked as shipped.' });
+    }
     item.status = 'shipped';
     item.shippedAt = Date.now();
-    order.status = order.items.every(entry => entry.status !== 'pending') ? 'shipped' : 'processing';
+    order.status = getOrderStatus(order.items);
     await saveRecord('orders', order);
     res.json({ success: true, order });
   });
 
   router.patch('/orders/:orderId/items/:itemId/deliver', authenticate, requireRole('shipper', 'admin'), async (req, res) => {
+ feature/inventory-import
+=======
     return res.status(503).json({
       success: false,
       message: 'The shipper platform is coming soon and is currently non-functional.'
     });
+ main
     const orders = await listRecords('orders');
     const order = orders.find(record => record.id === req.params.orderId);
     const item = order?.items.find(record => record.id === req.params.itemId);
     if (!order || !item) return res.status(404).json({ success: false, message: 'Order item not found.' });
+ feature/inventory-import
+    if (item.status !== 'shipped') {
+      return res.status(409).json({ success: false, message: 'Only shipped order items can be marked as delivered.' });
+    }
+    if (!req.marketUser.roles.includes('admin')) {
+      const shippers = await listRecords('shippers');
+      const profile = shippers.find(record => record.userId === req.marketUser.id);
+      if (!profile?.area || profile.area.trim().toLowerCase() !== String(order.address?.state || '').trim().toLowerCase()) {
+=======
     if (item.status !== 'shipped') return res.status(409).json({ success: false, message: 'The seller must mark this item shipped first.' });
     if (!req.marketUser.roles.includes('admin')) {
       const shippers = await listRecords('shippers');
       const profile = shippers.find(record => record.userId === req.marketUser.id);
       if (!profile || profile.area.toLowerCase() !== String(order.address?.state || '').toLowerCase()) {
+ main
         return res.status(403).json({ success: false, message: 'This order is outside your assigned delivery area.' });
       }
     }
     item.status = 'delivered';
     item.deliveredAt = Date.now();
+ feature/inventory-import
+    order.status = getOrderStatus(order.items);
+=======
     order.status = order.items.every(entry => entry.status === 'delivered') ? 'delivered' : 'shipped';
+ main
     await saveRecord('orders', order);
     res.json({ success: true, order });
   });

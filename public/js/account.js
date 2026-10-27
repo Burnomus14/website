@@ -17,7 +17,6 @@ const verifiedAccountEmailKey = 'verifiedAccountEmail';
 const pendingCheckoutKey = 'pendingMarketplaceCheckout';
 let marketplaceUser = null;
 let registrationMode = false;
-let adminSessionMode = false;
 let savedAddresses = [];
 let currentAccountCart = [];
 let sellerProducts = [];
@@ -118,27 +117,24 @@ function renderAccount() {
   const roles = marketplaceUser.roles || [];
   document.getElementById('welcomeName').textContent = `Hello, ${marketplaceUser.firstName || marketplaceUser.username || 'admin'}`;
   document.getElementById('accountEmail').textContent = marketplaceUser.email || '';
-  document.getElementById('roleLabel').textContent = adminSessionMode ? 'ADMIN SESSION' : roles.join(' / ').toUpperCase();
+  document.getElementById('roleLabel').textContent = roles.filter(role => role !== 'admin').join(' / ').toUpperCase();
   document.querySelectorAll('[data-role-tab]').forEach(tab => {
     tab.hidden = tab.dataset.roleTab === 'seller'
-      ? !roles.includes('seller') && !roles.includes('customer') && !roles.includes('admin')
+      ? !roles.includes('seller') && !roles.includes('customer')
       : !roles.includes(tab.dataset.roleTab);
   });
-  const sellerToolsVisible = roles.includes('seller') || roles.includes('admin');
+  const sellerToolsVisible = roles.includes('seller');
   document.getElementById('productForm').hidden = !sellerToolsVisible;
   document.getElementById('sellerProductsList').hidden = !sellerToolsVisible;
   document.getElementById('sellerOrdersList').previousElementSibling.hidden = !sellerToolsVisible;
   document.getElementById('sellerOrdersList').hidden = !sellerToolsVisible;
-  document.querySelector('[data-panel="profilePanel"]').hidden = adminSessionMode;
-  if (!adminSessionMode) {
-    const form = document.getElementById('profileForm');
-    form.elements.firstName.value = marketplaceUser.firstName || '';
-    form.elements.lastName.value = marketplaceUser.lastName || '';
-    form.elements.username.value = marketplaceUser.username || '';
-    form.elements.email.value = marketplaceUser.email || '';
-  }
+  const form = document.getElementById('profileForm');
+  form.elements.firstName.value = marketplaceUser.firstName || '';
+  form.elements.lastName.value = marketplaceUser.lastName || '';
+  form.elements.username.value = marketplaceUser.username || '';
+  form.elements.email.value = marketplaceUser.email || '';
   document.getElementById('sellerApplyForm').hidden =
-    adminSessionMode || roles.includes('seller') || !roles.includes('customer');
+    roles.includes('admin') || roles.includes('seller') || !roles.includes('customer');
   if (marketplaceUser.sellerApplication?.status === 'pending') {
     document.getElementById('sellerApplyMessage').textContent = 'Your seller application is awaiting admin review.';
     document.getElementById('sellerApplyForm').hidden = false;
@@ -165,7 +161,7 @@ async function loadAccountData() {
     loadAddresses()
   ]);
   const roles = marketplaceUser.roles || [];
-  if (roles.includes('seller') || roles.includes('admin')) {
+  if (roles.includes('seller')) {
     await Promise.all([loadSellerProducts(), loadCategories()]);
   }
   if (roles.includes('admin')) {
@@ -174,16 +170,33 @@ async function loadAccountData() {
 }
 
 async function loadOrders() {
-  const { orders } = await api('/orders');
+  const [customerOrderResult, sellerOrderResult, shipperOrderResult] = await Promise.all([
+    api('/orders'),
+    marketplaceUser.roles.includes('seller') ? api('/seller/orders') : Promise.resolve({ orders: [] }),
+    marketplaceUser.roles.includes('shipper') ? api('/shipper/orders') : Promise.resolve({ orders: [] })
+  ]);
+  const orders = customerOrderResult.orders;
+  const sellerOrders = sellerOrderResult.orders;
+  const shipperOrders = shipperOrderResult.orders;
   const container = document.getElementById('ordersList');
   const updates = [];
   for (const order of orders) {
     for (const item of order.items) {
       if (marketplaceUser.roles.includes('customer') && order.userId === marketplaceUser.id && item.status !== 'delivered') {
         updates.push({ title: `${item.name}: ${item.status}`, details: `Order ${order.id.slice(0, 10)} · ${new Date(order.createdAt).toLocaleDateString()}` });
-      } else if (marketplaceUser.roles.includes('seller') && item.sellerId === marketplaceUser.id && item.status === 'pending') {
+      }
+    }
+  }
+  for (const order of sellerOrders) {
+    for (const item of order.items) {
+      if (item.status === 'pending') {
         updates.push({ title: `New order for ${item.name}`, details: `Order ${order.id.slice(0, 10)} · Qty ${item.quantity}` });
-      } else if (marketplaceUser.roles.includes('shipper') && item.status === 'shipped') {
+      }
+    }
+  }
+  for (const order of shipperOrders) {
+    for (const item of order.items) {
+      if (item.status === 'shipped') {
         updates.push({ title: `Delivery assigned: ${item.name}`, details: `${order.address?.city || ''} · Order ${order.id.slice(0, 10)}` });
       }
     }
@@ -191,21 +204,12 @@ async function loadOrders() {
   document.getElementById('updatesList').innerHTML = updates.length
     ? updates.map(update => `<article class="marketplace-record"><div><h4>${escapeHtml(update.title)}</h4><p>${escapeHtml(update.details)}</p></div><span class="marketplace-status">Update</span></article>`).join('')
     : '<div class="marketplace-empty">You are all caught up.</div>';
-  if (!orders.length) {
-    container.innerHTML = '<div class="marketplace-empty">No orders to show yet. Your paid M-Pesa orders will appear here.</div>';
-    if (marketplaceUser.roles.includes('seller') || marketplaceUser.roles.includes('admin')) {
-      document.getElementById('sellerOrdersList').innerHTML = container.innerHTML;
-    }
-    if (marketplaceUser.roles.includes('shipper') || marketplaceUser.roles.includes('admin')) {
-      document.getElementById('shipperOrdersList').innerHTML = container.innerHTML;
-    }
-    return;
-  }
-  container.innerHTML = orders.map(order => `
+  container.innerHTML = orders.length ? orders.map(order => `
     <article class="marketplace-record marketplace-order">
       <div class="marketplace-record-main">
         <div>
           <h4>Order ${escapeHtml(order.id.slice(0, 10))} · KSh ${Number(order.totalPrice || 0).toLocaleString()}</h4>
+          <p>Tracking ID: <strong>${escapeHtml(order.trackingId || `TC-${order.id}`)}</strong></p>
           <p>${new Date(order.createdAt).toLocaleString()} · ${escapeHtml(order.status)} · ${escapeHtml(order.paymentStatus)}</p>
           <p>To ${escapeHtml(order.address?.recipient || order.customerName)} · ${escapeHtml(order.phoneNumber || order.address?.phone || '')}</p>
           <p>${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address supplied')}</p>
@@ -215,37 +219,65 @@ async function loadOrders() {
                 <div class="marketplace-order-line-info">
                   <p><strong>${escapeHtml(item.name)}</strong> · Qty ${Number(item.quantity)} · <span class="tracking-status-badge ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></p>
                 </div>
-                <button class="btn btn-whatsapp-track" type="button" data-action="whatsapp-track-item"
+                ${(marketplaceUser.roles.includes('customer') && order.userId === marketplaceUser.id && item.status !== 'delivered')
+                  ? `<button class="btn ghost btn-whatsapp-track" type="button" data-action="whatsapp-track-item"
                   data-order-id="${escapeHtml(order.id)}"
+                  data-tracking-id="${escapeHtml(order.trackingId || `TC-${order.id}`)}"
                   data-item-name="${escapeHtml(item.name)}"
                   data-item-qty="${Number(item.quantity)}"
                   data-item-status="${escapeHtml(item.status)}"
                   data-recipient="${escapeHtml(order.address?.recipient || order.customerName || '')}"
                   data-phone="${escapeHtml(order.phoneNumber || order.address?.phone || '')}"
                   data-destination="${escapeHtml(order.address ? `${order.address.city}, ${order.address.state}` : '')}"
+feature/inventory-import
+                  title="Push order to WhatsApp for a quicker response from the seller">
+                  Push order to WhatsApp
+                </button>` : ''}
+=======
                   title="Push order to WhatsApp for quick response from seller">
                   💬 WhatsApp Seller
                 </button>
+ main
               </div>
-              ${adminSessionMode || marketplaceUser.roles.includes('admin') || (marketplaceUser.roles.includes('seller') && item.sellerId === marketplaceUser.id)
-                ? `<div class="marketplace-record-actions" style="margin-top:8px;">
-                    ${item.status === 'pending' && (marketplaceUser.roles.includes('seller') || marketplaceUser.roles.includes('admin'))
-                      ? `<button class="btn ghost" type="button" data-action="ship" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark shipped</button>` : ''}
-                    ${item.status === 'shipped' && (marketplaceUser.roles.includes('shipper') || marketplaceUser.roles.includes('admin'))
-                      ? `<button class="btn ghost" type="button" disabled title="Shipper platform is coming soon" style="opacity:0.5; cursor:not-allowed;">Mark delivered (Coming Soon)</button>` : ''}
-                  </div>` : ''}
             </div>`).join('')}</div>
         </div>
       </div>
       <span class="marketplace-status">${escapeHtml(order.status)}</span>
-    </article>`).join('');
-  const sellerOrders = document.getElementById('sellerOrdersList');
-  const shipperOrders = document.getElementById('shipperOrdersList');
-  if (sellerOrders && (marketplaceUser.roles.includes('seller') || marketplaceUser.roles.includes('admin'))) {
-    sellerOrders.innerHTML = container.innerHTML;
+    </article>`).join('') : '<div class="marketplace-empty">No orders to show yet. Your paid M-Pesa orders will appear here.</div>';
+  const sellerOrdersContainer = document.getElementById('sellerOrdersList');
+  if (sellerOrdersContainer && marketplaceUser.roles.includes('seller')) {
+    sellerOrdersContainer.innerHTML = sellerOrders.length
+      ? sellerOrders.map(order => `
+        <article class="marketplace-record marketplace-order">
+          <div class="marketplace-record-main"><div>
+            <h4>Tracking ID: ${escapeHtml(order.trackingId || `TC-${order.id}`)}</h4>
+            <p>Order ${escapeHtml(order.id.slice(0, 10))} · ${escapeHtml(order.address?.recipient || order.customerName || 'Customer')} · ${escapeHtml(order.phoneNumber || order.address?.phone || '')}</p>
+            <div class="marketplace-order-lines">${order.items.map(item => `
+              <div class="marketplace-order-line marketplace-order-line-content">
+                <p><strong>${escapeHtml(item.name)}</strong> · Qty ${Number(item.quantity)} · <span class="tracking-status-badge ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></p>
+                ${item.status === 'pending' ? `<button class="btn ghost" type="button" data-action="ship" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark shipped</button>` : ''}
+              </div>`).join('')}</div>
+          </div></div>
+        </article>`).join('')
+      : '<div class="marketplace-empty">No orders for your products yet.</div>';
   }
-  if (shipperOrders && (marketplaceUser.roles.includes('shipper') || marketplaceUser.roles.includes('admin'))) {
-    shipperOrders.innerHTML = '<div class="marketplace-empty">The shipper platform is coming soon and is non-functional at the moment. Deliveries and dispatches are paused.</div>';
+  const shipperOrdersContainer = document.getElementById('shipperOrdersList');
+  if (shipperOrdersContainer && marketplaceUser.roles.includes('shipper')) {
+    shipperOrdersContainer.innerHTML = shipperOrders.length
+      ? shipperOrders.map(order => `
+        <article class="marketplace-record marketplace-order">
+          <div class="marketplace-record-main"><div>
+            <h4>Tracking ID: ${escapeHtml(order.trackingId || `TC-${order.id}`)}</h4>
+            <p>Order ${escapeHtml(order.id.slice(0, 10))} · ${escapeHtml(order.address?.recipient || order.customerName || 'Customer')}</p>
+            <p>${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address')}</p>
+            <div class="marketplace-order-lines">${order.items.filter(item => item.status === 'shipped' || item.status === 'delivered').map(item => `
+              <div class="marketplace-order-line marketplace-order-line-content">
+                <p><strong>${escapeHtml(item.name)}</strong> · Qty ${Number(item.quantity)} · <span class="tracking-status-badge ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></p>
+                ${item.status === 'shipped' ? `<button class="btn ghost" type="button" data-action="deliver" data-order-id="${escapeHtml(order.id)}" data-item-id="${escapeHtml(item.id)}">Mark delivered</button>` : ''}
+              </div>`).join('')}</div>
+          </div></div>
+        </article>`).join('')
+      : '<div class="marketplace-empty">No shipments are assigned to your area yet.</div>';
   }
 }
 
@@ -452,7 +484,6 @@ async function handleAuthSubmit(event) {
     await completePendingRegistration();
     const result = await api('/auth/me');
     marketplaceUser = result.user;
-    adminSessionMode = false;
     renderAccount();
     continuePendingCheckout();
   } catch (error) {
@@ -682,10 +713,13 @@ async function handleRecordAction(event) {
         await loadOrders();
         break;
       case 'deliver':
-        showToast('The shipper platform is coming soon and is currently non-functional.');
+        await api(`/orders/${encodeURIComponent(button.dataset.orderId)}/items/${encodeURIComponent(button.dataset.itemId)}/deliver`, { method: 'PATCH' });
+        await loadOrders();
+        showToast('Order item marked as delivered.');
         break;
       case 'whatsapp-track-item': {
         const orderId = button.dataset.orderId || '';
+        const trackingId = button.dataset.trackingId || `TC-${orderId}`;
         const itemName = button.dataset.itemName || '';
         const itemQty = button.dataset.itemQty || '1';
         const itemStatus = button.dataset.itemStatus || 'pending';
@@ -695,6 +729,7 @@ async function handleRecordAction(event) {
         const msgLines = [
           'Hello! I would like to track my order from The Collection:',
           '',
+          `• Tracking ID: ${trackingId}`,
           `• Order ID: #${orderId.slice(0, 10)}`,
           `• Item: ${itemName}`,
           `• Quantity: ${itemQty}`,
@@ -707,7 +742,7 @@ async function handleRecordAction(event) {
         const text = msgLines.join('\n');
         const phone = sellerPhoneNumber || '254728074301';
         const url = `https://api.whatsapp.com/send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
         break;
       }
       default:
@@ -719,14 +754,7 @@ async function handleRecordAction(event) {
 }
 
 async function signOut() {
-  if (adminSessionMode) {
-    const adminToken = localStorage.getItem('adminToken');
-    await fetch('/api/logout', { method: 'POST', headers: { 'x-admin-token': adminToken } });
-    localStorage.removeItem('adminToken');
-    await firebaseSignOut(auth);
-  } else {
-    await firebaseSignOut(auth);
-  }
+  await firebaseSignOut(auth);
   location.reload();
 }
 
@@ -753,8 +781,12 @@ document.getElementById('accountCreatedContinue').addEventListener('click', () =
 
 async function initializeAccount() {
   const adminToken = localStorage.getItem('adminToken');
+  if (adminToken) {
+    window.location.replace('/admin-marketplace.html');
+    return;
+  }
   await auth.authStateReady();
-  const currentUser = adminToken ? null : auth.currentUser;
+  const currentUser = auth.currentUser;
   const verifiedEmail = sessionStorage.getItem(verifiedAccountEmailKey);
   if (verifiedEmail) {
     document.querySelector('#authForm [name="identifier"]').value = verifiedEmail;
@@ -778,7 +810,6 @@ async function initializeAccount() {
     }
     const result = await api('/auth/me');
     marketplaceUser = result.user;
-    adminSessionMode = !currentUser && Boolean(adminToken);
     renderAccount();
     continuePendingCheckout();
   } catch (error) {
