@@ -20,6 +20,7 @@ function createMarketplace({
   const localStoreFile = path.join(dataDir, 'marketplace.json');
   const sessions = new Map();
   const collections = ['users', 'carts', 'wishlists', 'addresses', 'orders', 'shippers', 'categories'];
+
   for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
     const register = router[method].bind(router);
     router[method] = (routePath, ...handlers) => register(
@@ -89,6 +90,7 @@ function createMarketplace({
     const user = users.find(record =>
       (record.id === userId || record.firebaseUid === userId) && !record.isRestricted
     ) || null;
+
     if (user?.firebaseUid && user.passwordHash) {
       delete user.passwordHash;
       await saveRecord('users', user);
@@ -105,6 +107,7 @@ function createMarketplace({
       return user;
     }
     if (!firebaseAuth) return null;
+
     try {
       const decodedToken = await firebaseAuth.verifyIdToken(token);
       if (!decodedToken.email_verified) return null;
@@ -125,6 +128,7 @@ function createMarketplace({
       req.marketAdminToken = true;
       return next();
     }
+
     const token = req.headers['x-marketplace-token'] || req.headers['x-auth-token'];
     const user = await resolveUserToken(token);
     if (!user) return res.status(401).json({ success: false, message: 'Sign in to continue.' });
@@ -217,6 +221,7 @@ function createMarketplace({
         deliveredAt: null
       };
     });
+
     const order = {
       id: orderId,
       trackingId: getTrackingId(orders),
@@ -233,6 +238,7 @@ function createMarketplace({
       createdAt: Date.now(),
       paidAt: Date.now()
     };
+
     await saveRecord('orders', order);
     return order;
   }
@@ -241,6 +247,7 @@ function createMarketplace({
     if (!firebaseAuth || !db) {
       return res.status(503).json({ success: false, message: 'Account registration is temporarily unavailable.' });
     }
+
     let decodedToken;
     try {
       decodedToken = await firebaseAuth.verifyIdToken(req.headers['x-marketplace-token']);
@@ -251,30 +258,38 @@ function createMarketplace({
       }
       throw error;
     }
+
     if (!decodedToken.email_verified) {
       return res.status(403).json({ success: false, message: 'Verify your email address before continuing.' });
     }
+
     const firstName = cleanText(req.body.firstName, 80);
     const lastName = cleanText(req.body.lastName, 80);
     const username = cleanText(req.body.username, 40);
     const email = cleanText(decodedToken.email, 254).toLowerCase();
+
     if (!firstName || !lastName || !username || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ success: false, message: 'Enter your first name, last name, and username.' });
     }
+
     const users = await listRecords('users');
     const linkedUser = users.find(user => user.firebaseUid === decodedToken.uid || user.id === decodedToken.uid);
     const legacyUser = users.find(user => String(user.email || '').toLowerCase() === email);
     const user = linkedUser || legacyUser;
+
     if (user?.isRestricted) {
       return res.status(403).json({ success: false, message: 'This account is restricted. Contact the store administrator.' });
     }
+
     if (legacyUser?.firebaseUid && legacyUser.firebaseUid !== decodedToken.uid) {
       return res.status(409).json({ success: false, message: 'This email is linked to a different sign-in account. Use password recovery.' });
     }
+
     if (users.some(candidate => candidate.id !== user?.id &&
         String(candidate.username || '').toLowerCase() === username.toLowerCase())) {
       return res.status(409).json({ success: false, message: 'That username is already registered.' });
     }
+
     const updatedUser = user || {
       id: decodedToken.uid,
       roles: ['customer'],
@@ -282,14 +297,17 @@ function createMarketplace({
       sellerApplication: null,
       createdAt: Date.now()
     };
+
     updatedUser.firebaseUid = decodedToken.uid;
     updatedUser.username = username;
     updatedUser.email = email;
     updatedUser.firstName = firstName;
     updatedUser.lastName = lastName;
     delete updatedUser.passwordHash;
+
     const savedUser = updatedUser;
     await saveRecord('users', savedUser);
+
     res.status(user ? 200 : 201).json({ success: true, user: publicUser(savedUser) });
   });
 
@@ -299,22 +317,28 @@ function createMarketplace({
 
   router.patch('/profile', authenticate, requireRole('customer', 'seller', 'shipper', 'admin'), async (req, res) => {
     if (req.marketAdminToken) return res.status(400).json({ success: false, message: 'Edit admin details in the admin panel.' });
+
     const users = await listRecords('users');
     const user = users.find(record => record.id === req.marketUser.id);
     if (!user) return res.status(404).json({ success: false, message: 'Account not found.' });
+
     const firstName = req.body.firstName === undefined ? user.firstName : cleanText(req.body.firstName, 80);
     const lastName = req.body.lastName === undefined ? user.lastName : cleanText(req.body.lastName, 80);
     const username = req.body.username === undefined ? user.username : cleanText(req.body.username, 40);
+
     if (!firstName || !lastName || !username) {
       return res.status(400).json({ success: false, message: 'First name, last name, and username are required.' });
     }
+
     if (users.some(candidate => candidate.id !== user.id && candidate.username.toLowerCase() === username.toLowerCase())) {
       return res.status(409).json({ success: false, message: 'That username is already in use.' });
     }
+
     user.firstName = firstName;
     user.lastName = lastName;
     user.username = username;
     await saveRecord('users', user);
+
     res.json({ success: true, user: publicUser(user) });
   });
 
@@ -327,8 +351,10 @@ function createMarketplace({
   router.post('/seller/apply', authenticate, requireRole('customer', 'seller'), async (req, res) => {
     const user = req.marketUser;
     if (user.roles.includes('seller')) return res.status(409).json({ success: false, message: 'Your account is already a seller.' });
+
     user.sellerApplication = { status: 'pending', submittedAt: Date.now(), note: cleanText(req.body.note, 500) };
     await saveRecord('users', user);
+
     res.json({ success: true, user: publicUser(user) });
   });
 
@@ -337,6 +363,7 @@ function createMarketplace({
     const products = req.marketUser.roles.includes('admin')
       ? items
       : items.filter(item => item.ownerId === req.marketUser.id);
+
     res.json({ success: true, products });
   });
 
@@ -344,21 +371,26 @@ function createMarketplace({
     const name = cleanText(req.body.name, 120);
     const category = cleanText(req.body.category, 80);
     const quantity = Number(req.body.quantity);
+
     if (!name || !category || !Number.isSafeInteger(quantity) || quantity < 0) {
       return res.status(400).json({ success: false, message: 'Name, category, and a non-negative whole-number quantity are required.' });
     }
+
     const price = Number(String(req.body.price || '').replace(/[^\d.]/g, ''));
     if (!Number.isFinite(price) || price <= 0) {
       return res.status(400).json({ success: false, message: 'Enter a valid price.' });
     }
+
     const files = req.files?.images?.length ? req.files.images : req.files?.image || [];
     let media;
+
     try {
       media = await uploadMedia(files);
     } catch (error) {
       console.error('Marketplace product image upload failed:', error.message);
       return res.status(500).json({ success: false, message: 'Could not upload product images.' });
     }
+
     const items = await readCatalogItems();
     const product = {
       id: makeId(),
@@ -374,8 +406,10 @@ function createMarketplace({
       ownerId: req.marketUser.id,
       createdAt: Date.now()
     };
+
     items.push(product);
     await writeCatalogItems(items);
+
     res.status(201).json({ success: true, product });
   });
 
@@ -383,16 +417,20 @@ function createMarketplace({
     const items = await readCatalogItems();
     const index = items.findIndex(item => String(item.id) === String(req.params.id));
     if (index < 0) return res.status(404).json({ success: false, message: 'Product not found.' });
+
     const existing = items[index];
     if (!req.marketUser.roles.includes('admin') && existing.ownerId !== req.marketUser.id) {
       return res.status(403).json({ success: false, message: 'You can only edit your own products.' });
     }
+
     const quantity = req.body.quantity === undefined ? existing.quantity : Number(req.body.quantity);
     if (!Number.isSafeInteger(quantity) || quantity < 0) {
       return res.status(400).json({ success: false, message: 'Quantity must be a non-negative whole number.' });
     }
+
     const files = req.files?.images?.length ? req.files.images : req.files?.image || [];
     let media;
+
     if (files.length) {
       try {
         media = await uploadMedia(files);
@@ -401,13 +439,17 @@ function createMarketplace({
         return res.status(500).json({ success: false, message: 'Could not upload product images.' });
       }
     }
+
     const nextPrice = req.body.price === undefined
       ? existing.price
       : `KSh ${Math.round(Number(String(req.body.price).replace(/[^\d.]/g, '')) || 0)}`;
+
     if (req.body.price !== undefined && Number(nextPrice.replace(/[^\d.]/g, '')) <= 0) {
       return res.status(400).json({ success: false, message: 'Enter a valid price.' });
     }
+
     const previousMedia = getMediaUrls(existing);
+
     items[index] = {
       ...existing,
       name: req.body.name === undefined ? existing.name : cleanText(req.body.name, 120),
@@ -418,11 +460,14 @@ function createMarketplace({
       status: quantity > 0 ? 'in-stock' : 'sold',
       ...(media ? { images: media.images, image: media.images[0] || null, cloudinaryPublicIds: media.publicIds } : {})
     };
+
     await writeCatalogItems(items);
+
     if (media) {
       removeUnreferencedMedia(previousMedia, items);
       await removeCloudinaryMedia(existing.cloudinaryPublicIds);
     }
+
     res.json({ success: true, product: items[index] });
   });
 
@@ -430,14 +475,17 @@ function createMarketplace({
     const items = await readCatalogItems();
     const index = items.findIndex(item => String(item.id) === String(req.params.id));
     if (index < 0) return res.status(404).json({ success: false, message: 'Product not found.' });
+
     const product = items[index];
     if (!req.marketUser.roles.includes('admin') && product.ownerId !== req.marketUser.id) {
       return res.status(403).json({ success: false, message: 'You can only delete your own products.' });
     }
+
     items.splice(index, 1);
     await writeCatalogItems(items);
     removeUnreferencedMedia(getMediaUrls(product), items);
     await removeCloudinaryMedia(product.cloudinaryPublicIds);
+
     res.json({ success: true });
   });
 
@@ -446,25 +494,32 @@ function createMarketplace({
     const items = await readCatalogItems();
     const names = new Set(categories.map(category => category.name));
     items.forEach(item => { if (item.category) names.add(item.category); });
+
     const result = [...names].map(name => {
       const managed = categories.find(category => category.name === name);
       return managed ? { ...managed, managed: true } : { id: `archive:${encodeURIComponent(name)}`, name, managed: false };
     }).sort((a, b) => a.name.localeCompare(b.name));
+
     res.json({ success: true, categories: result });
   });
 
   router.post('/categories', authenticate, requireRole('seller', 'admin'), async (req, res) => {
     const name = cleanText(req.body.name, 80);
     const description = cleanText(req.body.description, 500);
+
     if (!name) return res.status(400).json({ success: false, message: 'Category name is required.' });
+
     const categories = await listRecords('categories');
     const items = await readCatalogItems();
+
     if (categories.some(category => category.name.toLowerCase() === name.toLowerCase()) ||
         items.some(item => String(item.category || '').toLowerCase() === name.toLowerCase())) {
       return res.status(409).json({ success: false, message: 'That category already exists.' });
     }
+
     const category = { id: makeId(), name, description, managed: true, createdAt: Date.now() };
     await saveRecord('categories', category);
+
     res.status(201).json({ success: true, category });
   });
 
@@ -472,9 +527,11 @@ function createMarketplace({
     const categories = await listRecords('categories');
     const name = cleanText(req.body.name, 80);
     if (!name) return res.status(400).json({ success: false, message: 'Category name is required.' });
+
     const existing = categories.find(record => record.id === req.params.id);
     const items = await readCatalogItems();
     let oldName = existing?.name || '';
+
     if (!existing && req.params.id.startsWith('archive:')) {
       try {
         oldName = decodeURIComponent(req.params.id.slice('archive:'.length));
@@ -482,14 +539,17 @@ function createMarketplace({
         return res.status(400).json({ success: false, message: 'Invalid category identifier.' });
       }
     }
+
     if ([...categories.map(record => record.name), ...items.map(item => item.category)]
       .some(categoryName => String(categoryName || '').toLowerCase() === name.toLowerCase() && categoryName !== oldName)) {
       return res.status(409).json({ success: false, message: 'That category already exists.' });
     }
+
     if (existing) {
       existing.name = name;
       existing.description = cleanText(req.body.description, 500);
       await saveRecord('categories', existing);
+
       let changed = false;
       items.forEach(item => {
         if (item.category === oldName) {
@@ -497,25 +557,32 @@ function createMarketplace({
           changed = true;
         }
       });
+
       if (changed) await writeCatalogItems(items);
       return res.json({ success: true, category: existing });
     }
+
     if (!req.params.id.startsWith('archive:')) return res.status(404).json({ success: false, message: 'Category not found.' });
+
     let legacyName;
     try {
       legacyName = decodeURIComponent(req.params.id.slice('archive:'.length));
     } catch {
       return res.status(400).json({ success: false, message: 'Invalid category identifier.' });
     }
+
     if (!items.some(item => item.category === legacyName)) return res.status(404).json({ success: false, message: 'Category not found.' });
+
     items.forEach(item => { if (item.category === legacyName) item.category = name; });
     await writeCatalogItems(items);
+
     res.json({ success: true, category: { name, managed: false } });
   });
 
   router.delete('/categories/:id', authenticate, requireRole('admin'), async (req, res) => {
     const categories = await listRecords('categories');
     let category = categories.find(record => record.id === req.params.id);
+
     if (!category && req.params.id.startsWith('archive:')) {
       try {
         category = { name: decodeURIComponent(req.params.id.slice('archive:'.length)), managed: false };
@@ -523,12 +590,16 @@ function createMarketplace({
         return res.status(400).json({ success: false, message: 'Invalid category identifier.' });
       }
     }
+
     if (!category) return res.status(404).json({ success: false, message: 'Category not found.' });
+
     const items = await readCatalogItems();
     if (items.some(item => item.category === category.name)) {
       return res.status(409).json({ success: false, message: 'This category is assigned to products and cannot be deleted.' });
     }
+
     if (category.id) await deleteRecord('categories', req.params.id);
+
     res.json({ success: true });
   });
 
@@ -541,38 +612,49 @@ function createMarketplace({
     if (!Array.isArray(req.body.items) || req.body.items.length > 100) {
       return res.status(400).json({ success: false, message: 'Basket items must be a list of 100 items or fewer.' });
     }
+
     const products = await readCatalogItems();
     const items = [];
+
     for (const line of req.body.items) {
       const productId = String(line?.productId || '');
       const quantity = Number(line?.quantity);
       const product = products.find(item => String(item.id) === productId);
+
       if (!product || product.status !== 'in-stock' || !Number.isSafeInteger(quantity) ||
           quantity < 1 || quantity > Number(product.quantity)) {
         return res.status(400).json({ success: false, message: 'One or more basket items are unavailable or exceed current stock.' });
       }
+
       items.push({ productId, quantity });
     }
+
     const cart = { id: req.marketUser.id, userId: req.marketUser.id, items, updatedAt: Date.now() };
     await saveRecord('carts', cart);
+
     res.json({ success: true, cart: await populateCart(cart) });
   });
 
   router.put('/cart/items/:productId', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
     const product = await getCatalogItem(req.params.productId);
     const quantity = Number(req.body.quantity);
+
     if (!product || product.status !== 'in-stock' || product.quantity < 1) {
       return res.status(404).json({ success: false, message: 'This product is not available.' });
     }
+
     if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > product.quantity) {
       return res.status(400).json({ success: false, message: 'Choose a valid quantity within available stock.' });
     }
+
     const cart = await loadCart(req.marketUser.id);
     const line = cart.items.find(item => item.productId === String(product.id));
     if (line) line.quantity = quantity;
     else cart.items.push({ productId: String(product.id), quantity });
+
     cart.updatedAt = Date.now();
     await saveRecord('carts', cart);
+
     res.json({ success: true, cart: await populateCart(cart) });
   });
 
@@ -581,6 +663,7 @@ function createMarketplace({
     cart.items = cart.items.filter(item => item.productId !== String(req.params.productId));
     cart.updatedAt = Date.now();
     await saveRecord('carts', cart);
+
     res.json({ success: true, cart: await populateCart(cart) });
   });
 
@@ -588,15 +671,19 @@ function createMarketplace({
     const lists = await listRecords('wishlists');
     const wishlist = lists.find(list => list.userId === req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
     const products = await readCatalogItems();
+
     res.json({ success: true, wishlist: wishlist.productIds.map(id => products.find(product => String(product.id) === id)).filter(Boolean) });
   });
 
   router.put('/wishlist/:productId', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
     if (!await getCatalogItem(req.params.productId)) return res.status(404).json({ success: false, message: 'Product not found.' });
+
     const lists = await listRecords('wishlists');
     const wishlist = lists.find(list => list.userId === req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
     if (!wishlist.productIds.includes(String(req.params.productId))) wishlist.productIds.push(String(req.params.productId));
+
     await saveRecord('wishlists', wishlist);
+
     res.json({ success: true });
   });
 
@@ -605,6 +692,7 @@ function createMarketplace({
     const wishlist = lists.find(list => list.userId === req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
     wishlist.productIds = wishlist.productIds.filter(id => id !== String(req.params.productId));
     await saveRecord('wishlists', wishlist);
+
     res.json({ success: true });
   });
 
@@ -627,10 +715,13 @@ function createMarketplace({
       postalCode: cleanText(req.body.postalCode, 20),
       createdAt: Date.now()
     };
+
     if (!address.recipient || !address.phone || !address.state || !address.city || !address.street) {
       return res.status(400).json({ success: false, message: 'Recipient, phone, area/county, city, and street are required.' });
     }
+
     await saveRecord('addresses', address);
+
     res.status(201).json({ success: true, address });
   });
 
@@ -638,13 +729,17 @@ function createMarketplace({
     const addresses = await listRecords('addresses');
     const address = addresses.find(record => record.id === req.params.id && record.userId === req.marketUser.id);
     if (!address) return res.status(404).json({ success: false, message: 'Address not found.' });
+
     for (const key of ['recipient', 'phone', 'country', 'state', 'city', 'street', 'addressLine', 'postalCode']) {
       if (req.body[key] !== undefined) address[key] = cleanText(req.body[key], key === 'addressLine' ? 240 : 160);
     }
+
     if (!address.recipient || !address.phone || !address.state || !address.city || !address.street) {
       return res.status(400).json({ success: false, message: 'Recipient, phone, area/county, city, and street are required.' });
     }
+
     await saveRecord('addresses', address);
+
     res.json({ success: true, address });
   });
 
@@ -652,7 +747,9 @@ function createMarketplace({
     const addresses = await listRecords('addresses');
     const address = addresses.find(record => record.id === req.params.id && record.userId === req.marketUser.id);
     if (!address) return res.status(404).json({ success: false, message: 'Address not found.' });
+
     await deleteRecord('addresses', address.id);
+
     res.json({ success: true });
   });
 
@@ -661,36 +758,46 @@ function createMarketplace({
     for (const order of orders) {
       await ensureOrderTrackingId(order, orders);
     }
+
     const user = req.marketUser;
     let visible;
+
     if (user.roles.includes('admin')) visible = orders;
     else {
       const orderMap = new Map();
+
       if (user.roles.includes('customer')) {
         orders.filter(order => order.userId === user.id).forEach(order => orderMap.set(order.id, order));
       }
+
       if (user.roles.includes('seller')) {
         orders.forEach(order => {
           const sellerItems = order.items.filter(item => item.sellerId === user.id);
           if (sellerItems.length && !orderMap.has(order.id)) orderMap.set(order.id, { ...order, items: sellerItems });
         });
       }
+
       visible = [...orderMap.values()].filter(order => order.items.length);
     }
+
     visible.sort((a, b) => b.createdAt - a.createdAt);
+
     res.json({ success: true, orders: visible });
   });
 
   router.get('/seller/orders', authenticate, requireRole('seller'), async (req, res) => {
     const orders = await listRecords('orders');
     const visible = [];
+
     for (const order of orders) {
       const sellerItems = order.items.filter(item => item.sellerId === req.marketUser.id);
       if (!sellerItems.length) continue;
       await ensureOrderTrackingId(order, orders);
       visible.push({ ...order, items: sellerItems });
     }
+
     visible.sort((a, b) => b.createdAt - a.createdAt);
+
     res.json({ success: true, orders: visible });
   });
 
@@ -699,19 +806,24 @@ function createMarketplace({
     const shippers = await listRecords('shippers');
     const profile = shippers.find(record => record.userId === req.marketUser.id);
     const area = String(profile?.area || '').trim().toLowerCase();
+
     const visible = req.marketUser.roles.includes('admin')
       ? orders
       : area
         ? orders.filter(order => String(order.address?.state || '').trim().toLowerCase() === area)
         : [];
+
     for (const order of visible) {
       await ensureOrderTrackingId(order, orders);
     }
+
     const deliveries = visible.map(order => ({
       ...order,
       items: order.items.filter(item => item.status === 'shipped' || item.status === 'delivered')
     })).filter(order => order.items.length);
+
     deliveries.sort((a, b) => b.createdAt - a.createdAt);
+
     res.json({ success: true, orders: deliveries });
   });
 
@@ -719,6 +831,7 @@ function createMarketplace({
     const orders = await listRecords('orders');
     const order = orders.find(record => record.id === req.params.orderId);
     const item = order?.items.find(record => record.id === req.params.itemId);
+
     if (!order || !item) return res.status(404).json({ success: false, message: 'Order item not found.' });
     if (!req.marketUser.roles.includes('admin') && item.sellerId !== req.marketUser.id) {
       return res.status(403).json({ success: false, message: 'You can only update your own order items.' });
@@ -726,51 +839,41 @@ function createMarketplace({
     if (item.status !== 'pending') {
       return res.status(409).json({ success: false, message: 'Only pending order items can be marked as shipped.' });
     }
+
     item.status = 'shipped';
     item.shippedAt = Date.now();
     order.status = getOrderStatus(order.items);
+
     await saveRecord('orders', order);
+
     res.json({ success: true, order });
   });
 
   router.patch('/orders/:orderId/items/:itemId/deliver', authenticate, requireRole('shipper', 'admin'), async (req, res) => {
- feature/inventory-import
-=======
-    return res.status(503).json({
-      success: false,
-      message: 'The shipper platform is coming soon and is currently non-functional.'
-    });
- main
     const orders = await listRecords('orders');
     const order = orders.find(record => record.id === req.params.orderId);
     const item = order?.items.find(record => record.id === req.params.itemId);
+
     if (!order || !item) return res.status(404).json({ success: false, message: 'Order item not found.' });
- feature/inventory-import
     if (item.status !== 'shipped') {
       return res.status(409).json({ success: false, message: 'Only shipped order items can be marked as delivered.' });
     }
+
     if (!req.marketUser.roles.includes('admin')) {
       const shippers = await listRecords('shippers');
       const profile = shippers.find(record => record.userId === req.marketUser.id);
+
       if (!profile?.area || profile.area.trim().toLowerCase() !== String(order.address?.state || '').trim().toLowerCase()) {
-=======
-    if (item.status !== 'shipped') return res.status(409).json({ success: false, message: 'The seller must mark this item shipped first.' });
-    if (!req.marketUser.roles.includes('admin')) {
-      const shippers = await listRecords('shippers');
-      const profile = shippers.find(record => record.userId === req.marketUser.id);
-      if (!profile || profile.area.toLowerCase() !== String(order.address?.state || '').toLowerCase()) {
- main
         return res.status(403).json({ success: false, message: 'This order is outside your assigned delivery area.' });
       }
     }
+
     item.status = 'delivered';
     item.deliveredAt = Date.now();
- feature/inventory-import
     order.status = getOrderStatus(order.items);
-=======
-    order.status = order.items.every(entry => entry.status === 'delivered') ? 'delivered' : 'shipped';
- main
+
     await saveRecord('orders', order);
+
     res.json({ success: true, order });
   });
 
@@ -783,15 +886,20 @@ function createMarketplace({
     const users = await listRecords('users');
     const user = users.find(record => record.id === req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
     const allowedRoles = new Set(['customer', 'seller', 'shipper', 'admin']);
     const roles = [...new Set(Array.isArray(req.body.roles) ? req.body.roles : [])];
+
     if (!roles.includes('customer') || roles.some(role => !allowedRoles.has(role))) {
       return res.status(400).json({ success: false, message: 'Roles must include customer and contain only supported roles.' });
     }
+
     user.roles = roles;
     if (roles.includes('seller') && user.sellerApplication) user.sellerApplication.status = 'approved';
     if (!roles.includes('seller') && user.sellerApplication?.status === 'pending') user.sellerApplication.status = 'declined';
+
     await saveRecord('users', user);
+
     res.json({ success: true, user: publicUser(user) });
   });
 
@@ -799,21 +907,29 @@ function createMarketplace({
     const users = await listRecords('users');
     const user = users.find(record => record.id === req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+feature/inventory-import
     if (typeof req.body.restricted !== 'boolean') {
       return res.status(400).json({ success: false, message: 'A boolean restricted value is required.' });
     }
 
     user.isRestricted = req.body.restricted;
+
+
+    user.isRestricted = Boolean(req.body.restricted);
+ main
     await saveRecord('users', user);
+
     res.json({ success: true, user: publicUser(user) });
   });
 
   router.get('/admin/shippers', authenticate, requireRole('admin'), async (req, res) => {
     const [users, shippers] = await Promise.all([listRecords('users'), listRecords('shippers')]);
+
     const profiles = users.filter(user => user.roles.includes('shipper')).map(user => {
       const profile = shippers.find(shipper => shipper.userId === user.id) || { id: user.id, userId: user.id };
       return { ...profile, user: publicUser(user) };
     });
+
     res.json({ success: true, shippers: profiles });
   });
 
@@ -821,23 +937,29 @@ function createMarketplace({
     const users = await listRecords('users');
     const user = users.find(record => record.id === req.params.userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
     const area = cleanText(req.body.area, 100);
     if (!area) return res.status(400).json({ success: false, message: 'A delivery area is required.' });
+
     user.roles = [...new Set([...(user.roles || ['customer']), 'shipper'])];
     await saveRecord('users', user);
+
     const shippers = await listRecords('shippers');
     const profile = shippers.find(record => record.userId === user.id) || { id: user.id, userId: user.id };
     profile.area = area;
     profile.company = cleanText(req.body.company, 120);
     profile.phone = cleanText(req.body.phone, 30);
     profile.updatedAt = Date.now();
+
     await saveRecord('shippers', profile);
+
     res.json({ success: true, shipper: { ...profile, user: publicUser(user) } });
   });
 
   router.get('/admin/overview', authenticate, requireRole('admin'), async (req, res) => {
     const [items, users, orders] = await Promise.all([readCatalogItems(), listRecords('users'), listRecords('orders')]);
     const totalStock = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+
     res.json({
       success: true,
       stats: {
