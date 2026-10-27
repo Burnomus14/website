@@ -209,7 +209,7 @@ async function loadOrders() {
       <div class="marketplace-record-main">
         <div>
           <h4>Order ${escapeHtml(order.id.slice(0, 10))} · KSh ${Number(order.totalPrice || 0).toLocaleString()}</h4>
-          <p>Tracking ID: <strong>${escapeHtml(order.trackingId || `TC-${order.id}`)}</strong></p>
+          <p>Tracking ID: <strong>${escapeHtml(order.trackingId || 'Unavailable')}</strong></p>
           <p>${new Date(order.createdAt).toLocaleString()} · ${escapeHtml(order.status)} · ${escapeHtml(order.paymentStatus)}</p>
           <p>To ${escapeHtml(order.address?.recipient || order.customerName)} · ${escapeHtml(order.phoneNumber || order.address?.phone || '')}</p>
           <p>${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address supplied')}</p>
@@ -222,7 +222,7 @@ async function loadOrders() {
                 ${(marketplaceUser.roles.includes('customer') && order.userId === marketplaceUser.id && item.status !== 'delivered')
                   ? `<button class="btn ghost btn-whatsapp-track" type="button" data-action="whatsapp-track-item"
                   data-order-id="${escapeHtml(order.id)}"
-                  data-tracking-id="${escapeHtml(order.trackingId || `TC-${order.id}`)}"
+                  data-tracking-id="${escapeHtml(order.trackingId || 'Unavailable')}"
                   data-item-name="${escapeHtml(item.name)}"
                   data-item-qty="${Number(item.quantity)}"
                   data-item-status="${escapeHtml(item.status)}"
@@ -250,7 +250,7 @@ feature/inventory-import
       ? sellerOrders.map(order => `
         <article class="marketplace-record marketplace-order">
           <div class="marketplace-record-main"><div>
-            <h4>Tracking ID: ${escapeHtml(order.trackingId || `TC-${order.id}`)}</h4>
+            <h4>Tracking ID: ${escapeHtml(order.trackingId || 'Unavailable')}</h4>
             <p>Order ${escapeHtml(order.id.slice(0, 10))} · ${escapeHtml(order.address?.recipient || order.customerName || 'Customer')} · ${escapeHtml(order.phoneNumber || order.address?.phone || '')}</p>
             <div class="marketplace-order-lines">${order.items.map(item => `
               <div class="marketplace-order-line marketplace-order-line-content">
@@ -267,7 +267,7 @@ feature/inventory-import
       ? shipperOrders.map(order => `
         <article class="marketplace-record marketplace-order">
           <div class="marketplace-record-main"><div>
-            <h4>Tracking ID: ${escapeHtml(order.trackingId || `TC-${order.id}`)}</h4>
+            <h4>Tracking ID: ${escapeHtml(order.trackingId || 'Unavailable')}</h4>
             <p>Order ${escapeHtml(order.id.slice(0, 10))} · ${escapeHtml(order.address?.recipient || order.customerName || 'Customer')}</p>
             <p>${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address')}</p>
             <div class="marketplace-order-lines">${order.items.filter(item => item.status === 'shipped' || item.status === 'delivered').map(item => `
@@ -719,7 +719,7 @@ async function handleRecordAction(event) {
         break;
       case 'whatsapp-track-item': {
         const orderId = button.dataset.orderId || '';
-        const trackingId = button.dataset.trackingId || `TC-${orderId}`;
+        const trackingId = button.dataset.trackingId || 'Unavailable';
         const itemName = button.dataset.itemName || '';
         const itemQty = button.dataset.itemQty || '1';
         const itemStatus = button.dataset.itemStatus || 'pending';

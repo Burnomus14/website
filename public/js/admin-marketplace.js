@@ -53,7 +53,7 @@ async function loadUsers() {
     <article class="marketplace-record">
       <div>
         <h4>${escapeHtml(user.firstName || '')} ${escapeHtml(user.lastName || '')} · @${escapeHtml(user.username || 'unknown')}</h4>
-        <p>${escapeHtml(user.email || 'No email')} · Roles: ${(user.roles || []).join(', ') || 'none'}</p>
+        <p>${escapeHtml(user.email || 'No email')} · Roles: ${(user.roles || []).join(', ') || 'none'} · Account: ${user.isRestricted ? 'Restricted' : 'Active'}</p>
         <div class="marketplace-role-controls">
           ${['customer', 'seller', 'shipper', 'admin'].map(role => `
             <label>
@@ -63,6 +63,15 @@ async function loadUsers() {
           `).join('')}
         </div>
       </div>
+      ${(user.roles || []).includes('admin') ? '' : `
+        <div class="marketplace-record-actions">
+          <button class="btn ${user.isRestricted ? 'ghost' : 'danger'}" type="button"
+            data-action="user-restriction" data-id="${escapeHtml(user.id)}"
+            data-restricted="${Boolean(user.isRestricted)}">
+            ${user.isRestricted ? 'Unrestrict account' : 'Restrict account'}
+          </button>
+        </div>
+      `}
     </article>
   `).join('');
 }
@@ -122,7 +131,7 @@ async function loadMarketplaceOrders() {
       <div class="marketplace-record-main">
         <div>
           <h4>Order ${escapeHtml(order.id.slice(0, 10))} · KSh ${Number(order.totalPrice || 0).toLocaleString()}</h4>
-          <p>Tracking ID: <strong>${escapeHtml(order.trackingId || `TC-${order.id}`)}</strong></p>
+          <p>Tracking ID: <strong>${escapeHtml(order.trackingId || 'Unavailable')}</strong></p>
           <p>${new Date(order.createdAt).toLocaleString()} · Status: <strong>${escapeHtml(order.status)}</strong> · Payment: ${escapeHtml(order.paymentStatus || 'unknown')}</p>
           <p>Customer: ${escapeHtml(order.address?.recipient || order.customerName || 'Customer')} · Phone: ${escapeHtml(order.phoneNumber || order.address?.phone || '—')}</p>
           <p>Address: ${escapeHtml(order.address ? `${order.address.street}, ${order.address.city}, ${order.address.state}` : 'No delivery address recorded')}</p>
@@ -200,6 +209,23 @@ document.getElementById('usersList').addEventListener('change', async (event) =>
   } catch (err) {
     event.target.checked = !event.target.checked;
     showToast(err.message);
+  }
+});
+
+document.getElementById('usersList').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-action="user-restriction"]');
+  if (!button) return;
+  const restricted = button.dataset.restricted !== 'true';
+  try {
+    await api(`/admin/users/${encodeURIComponent(button.dataset.id)}/restrict`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restricted })
+    });
+    showToast(restricted ? 'Account restricted.' : 'Account unrestricted.');
+    await loadUsers();
+  } catch (error) {
+    showToast(error.message);
   }
 });
 
