@@ -1,7 +1,6 @@
 # The Collection
  feature/inventory-import
 An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, an active shipper delivery network, and a password-protected admin panel.
-=======
 An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, shipper fulfillment, and a password-protected admin panel.
 main
 
