@@ -732,10 +732,18 @@ function createMarketplace({
   });
 
   router.patch('/orders/:orderId/items/:itemId/deliver', authenticate, requireRole('shipper', 'admin'), async (req, res) => {
+ feature/inventory-import
+=======
+    return res.status(503).json({
+      success: false,
+      message: 'The shipper platform is coming soon and is currently non-functional.'
+    });
+ main
     const orders = await listRecords('orders');
     const order = orders.find(record => record.id === req.params.orderId);
     const item = order?.items.find(record => record.id === req.params.itemId);
     if (!order || !item) return res.status(404).json({ success: false, message: 'Order item not found.' });
+ feature/inventory-import
     if (item.status !== 'shipped') {
       return res.status(409).json({ success: false, message: 'Only shipped order items can be marked as delivered.' });
     }
@@ -743,12 +751,23 @@ function createMarketplace({
       const shippers = await listRecords('shippers');
       const profile = shippers.find(record => record.userId === req.marketUser.id);
       if (!profile?.area || profile.area.trim().toLowerCase() !== String(order.address?.state || '').trim().toLowerCase()) {
+=======
+    if (item.status !== 'shipped') return res.status(409).json({ success: false, message: 'The seller must mark this item shipped first.' });
+    if (!req.marketUser.roles.includes('admin')) {
+      const shippers = await listRecords('shippers');
+      const profile = shippers.find(record => record.userId === req.marketUser.id);
+      if (!profile || profile.area.toLowerCase() !== String(order.address?.state || '').toLowerCase()) {
+ main
         return res.status(403).json({ success: false, message: 'This order is outside your assigned delivery area.' });
       }
     }
     item.status = 'delivered';
     item.deliveredAt = Date.now();
+ feature/inventory-import
     order.status = getOrderStatus(order.items);
+=======
+    order.status = order.items.every(entry => entry.status === 'delivered') ? 'delivered' : 'shipped';
+ main
     await saveRecord('orders', order);
     res.json({ success: true, order });
   });
