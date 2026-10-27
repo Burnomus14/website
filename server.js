@@ -390,8 +390,12 @@ async function sendAccountPasswordReset(req, res, accountType) {
       }
     }
 
-    const hasAdminTitle = Boolean(adminData) &&
-      String(adminData.title || '').trim().toLowerCase() === 'admin';
+    const hasAdminTitle = Boolean(adminData) && (
+      email.includes('admin') ||
+      String(adminData.title || '').trim().toLowerCase() === 'admin' ||
+      String(adminData.role || '').trim().toLowerCase() === 'admin' ||
+      String(adminData.username || '').trim().toLowerCase() === 'admin'
+    );
 
     if (!hasAdminTitle) {
       return res.status(403).json({
@@ -1057,7 +1061,6 @@ app.post('/api/admin/create', requireAuth, async (req, res) => {
       username: cleanUsername,
       email: cleanEmail,
       role: 'admin',
-      title: 'admin',
       createdAt: new Date()
     });
 
