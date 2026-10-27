@@ -148,8 +148,13 @@ function createMarketplace({
     return crypto.randomBytes(12).toString('hex');
   }
 
-  function getTrackingId(orderId) {
-    return `TC-${Buffer.from(String(orderId), 'utf8').toString('hex').toUpperCase()}`;
+  function getTrackingId(existingOrders = []) {
+    const existingIds = new Set(existingOrders.map(order => order.trackingId).filter(Boolean));
+    let trackingId;
+    do {
+      trackingId = crypto.randomBytes(8).toString('hex').toUpperCase();
+    } while (existingIds.has(trackingId));
+    return trackingId;
   }
 
   function getOrderStatus(items) {
@@ -158,9 +163,11 @@ function createMarketplace({
     return items.some(item => item.status !== 'pending') ? 'processing' : 'pending';
   }
 
-  async function ensureOrderTrackingId(order) {
-    if (order.trackingId) return;
-    order.trackingId = getTrackingId(order.id);
+  async function ensureOrderTrackingId(order, existingOrders) {
+    const orders = existingOrders || await listRecords('orders');
+    const matches = orders.filter(record => record.trackingId === order.trackingId);
+    if (/^[A-F0-9]{16}$/.test(order.trackingId || '') && matches.length <= 1) return;
+    order.trackingId = getTrackingId(orders.filter(record => record.id !== order.id));
     await saveRecord('orders', order);
   }
 
@@ -187,16 +194,11 @@ function createMarketplace({
 
   async function recordPaidOrder(transaction) {
     const orderId = transaction.orderId || transaction.checkoutRequestId || makeId();
-    if (orderId) {
-      const orders = await listRecords('orders');
-      const existing = orders.find(order => order.id === orderId);
-      if (existing) {
-        if (!existing.trackingId) {
-          existing.trackingId = getTrackingId(existing.id);
-          await saveRecord('orders', existing);
-        }
-        return existing;
-      }
+    const orders = await listRecords('orders');
+    const existing = orders.find(order => order.id === orderId);
+    if (existing) {
+      await ensureOrderTrackingId(existing, orders);
+      return existing;
     }
 
     const productItems = await readCatalogItems();
@@ -217,7 +219,7 @@ function createMarketplace({
     });
     const order = {
       id: orderId,
-      trackingId: getTrackingId(orderId),
+      trackingId: getTrackingId(orders),
       userId: transaction.marketplaceUserId || null,
       customerName: cleanText(transaction.customerName, 120) || 'Guest customer',
       phoneNumber: cleanText(transaction.phoneNumber, 20),
@@ -657,7 +659,7 @@ function createMarketplace({
   router.get('/orders', authenticate, async (req, res) => {
     const orders = await listRecords('orders');
     for (const order of orders) {
-      await ensureOrderTrackingId(order);
+      await ensureOrderTrackingId(order, orders);
     }
     const user = req.marketUser;
     let visible;
@@ -685,7 +687,7 @@ function createMarketplace({
     for (const order of orders) {
       const sellerItems = order.items.filter(item => item.sellerId === req.marketUser.id);
       if (!sellerItems.length) continue;
-      await ensureOrderTrackingId(order);
+      await ensureOrderTrackingId(order, orders);
       visible.push({ ...order, items: sellerItems });
     }
     visible.sort((a, b) => b.createdAt - a.createdAt);
@@ -703,7 +705,7 @@ function createMarketplace({
         ? orders.filter(order => String(order.address?.state || '').trim().toLowerCase() === area)
         : [];
     for (const order of visible) {
-      await ensureOrderTrackingId(order);
+      await ensureOrderTrackingId(order, orders);
     }
     const deliveries = visible.map(order => ({
       ...order,
@@ -778,7 +780,11 @@ function createMarketplace({
     const users = await listRecords('users');
     const user = users.find(record => record.id === req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
-    user.isRestricted = Boolean(req.body.restricted);
+    if (typeof req.body.restricted !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'A boolean restricted value is required.' });
+    }
+
+    user.isRestricted = req.body.restricted;
     await saveRecord('users', user);
     res.json({ success: true, user: publicUser(user) });
   });
