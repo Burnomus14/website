@@ -897,8 +897,7 @@ function createMarketplace({
     user.roles = roles;
     if (roles.includes('seller') && user.sellerApplication) user.sellerApplication.status = 'approved';
     if (!roles.includes('seller') && user.sellerApplication?.status === 'pending') user.sellerApplication.status = 'declined';
-
-    await saveRecord('users', user);
+await saveRecord('users', user);
 
     res.json({ success: true, user: publicUser(user) });
   });
@@ -907,13 +906,12 @@ function createMarketplace({
     const users = await listRecords('users');
     const user = users.find(record => record.id === req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
-feature/inventory-import
+
     if (typeof req.body.restricted !== 'boolean') {
       return res.status(400).json({ success: false, message: 'A boolean restricted value is required.' });
     }
 
     user.isRestricted = req.body.restricted;
-
 
     user.isRestricted = Boolean(req.body.restricted);
  main
