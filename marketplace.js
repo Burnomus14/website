@@ -912,9 +912,6 @@ await saveRecord('users', user);
     }
 
     user.isRestricted = req.body.restricted;
-
-    user.isRestricted = Boolean(req.body.restricted);
- main
     await saveRecord('users', user);
 
     res.json({ success: true, user: publicUser(user) });
