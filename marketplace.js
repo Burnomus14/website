@@ -915,6 +915,8 @@ await saveRecord('users', user);
 
     await saveRecord('users', user);
 
+    res.json({ success: true, user: publicUser(user) });
+
   router.get('/admin/shippers', authenticate, requireRole('admin'), async (req, res) => {
     const [users, shippers] = await Promise.all([listRecords('users'), listRecords('shippers')]);
 
