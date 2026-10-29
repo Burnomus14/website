@@ -911,11 +911,11 @@ await saveRecord('users', user);
       return res.status(400).json({ success: false, message: 'A boolean restricted value is required.' });
     }
 
-    user.isRestricted = req.body.restricted;
-
     user.isRestricted = Boolean(req.body.restricted);
- main
     await saveRecord('users', user);
+
+    res.json({ success: true, user: publicUser(user) });
+  });
 
   router.get('/admin/shippers', authenticate, requireRole('admin'), async (req, res) => {
     const [users, shippers] = await Promise.all([listRecords('users'), listRecords('shippers')]);
