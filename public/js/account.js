@@ -229,15 +229,9 @@ async function loadOrders() {
                   data-recipient="${escapeHtml(order.address?.recipient || order.customerName || '')}"
                   data-phone="${escapeHtml(order.phoneNumber || order.address?.phone || '')}"
                   data-destination="${escapeHtml(order.address ? `${order.address.city}, ${order.address.state}` : '')}"
-feature/inventory-import
-                  title="Push order to WhatsApp for a quicker response from the seller">
-                  Push order to WhatsApp
-                </button>` : ''}
                   title="Push order to WhatsApp for quick response from seller">
                   💬 WhatsApp Seller
-                </button>
- main
-              </div>
+                </button>` : ''}
             </div>`).join('')}</div>
         </div>
       </div>
