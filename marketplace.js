@@ -912,10 +912,8 @@ await saveRecord('users', user);
     }
 
     user.isRestricted = req.body.restricted;
-    await saveRecord('users', user);
 
-    res.json({ success: true, user: publicUser(user) });
-  });
+    await saveRecord('users', user);
 
   router.get('/admin/shippers', authenticate, requireRole('admin'), async (req, res) => {
     const [users, shippers] = await Promise.all([listRecords('users'), listRecords('shippers')]);
