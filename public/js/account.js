@@ -233,7 +233,6 @@ feature/inventory-import
                   title="Push order to WhatsApp for a quicker response from the seller">
                   Push order to WhatsApp
                 </button>` : ''}
-=======
                   title="Push order to WhatsApp for quick response from seller">
                   💬 WhatsApp Seller
                 </button>
