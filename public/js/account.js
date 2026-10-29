@@ -566,7 +566,7 @@ async function handleProductSubmit(event) {
   try {
     const response = await fetch(`/api/marketplace/products${id ? `/${encodeURIComponent(id)}` : ''}`, {
       method: id ? 'PATCH' : 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       body: formData
     });
     const data = await response.json();
