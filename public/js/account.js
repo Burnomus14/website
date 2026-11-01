@@ -563,13 +563,20 @@ async function handleProductSubmit(event) {
   const formData = new FormData(form);
   const id = formData.get('id');
   formData.delete('id');
+  const submitButton = form.querySelector('button[type="submit"]');
   try {
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Saving...'; }
+    // Shrink big phone photos in the browser so uploads are fast and never hit the size limit.
+    const photos = formData.getAll('images').filter(file => file && file.size);
+    formData.delete('images');
+    for (const photo of photos) formData.append('images', await shrinkImage(photo), photo.name.replace(/\.[^.]+$/, '') + '.jpg');
+    if (photos.length === 0 && !id) showMessage(document.getElementById('productMessage'), 'Saving without photos...');
     const response = await fetch(`/api/marketplace/products${id ? `/${encodeURIComponent(id)}` : ''}`, {
       method: id ? 'PATCH' : 'POST',
       headers: await getAuthHeaders(),
       body: formData
     });
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.message || 'Could not save product.');
     showMessage(document.getElementById('productMessage'), 'Product saved.');
     form.reset();
@@ -577,6 +584,24 @@ async function handleProductSubmit(event) {
     await Promise.all([loadSellerProducts(), loadCategories()]);
   } catch (error) {
     showMessage(document.getElementById('productMessage'), error.message, true);
+  } finally {
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Save product'; }
+  }
+}
+
+// Resize to max 1600px and re-encode as JPEG. Falls back to the original file if the browser can't decode it.
+async function shrinkImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    return blob && blob.size ? blob : file;
+  } catch {
+    return file;
   }
 }
 
