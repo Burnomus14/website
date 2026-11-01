@@ -371,7 +371,9 @@ function createMarketplace({
       return res.status(400).json({ success: false, message: 'First name, last name, and username are required.' });
     }
 
-    if (users.some(candidate => candidate.id !== user.id && candidate.username.toLowerCase() === username.toLowerCase())) {
+    // Usernames are compared case-insensitively, so this one rare route reads the user list.
+    const users = await listRecords('users');
+    if (users.some(candidate => candidate.id !== user.id && String(candidate.username || '').toLowerCase() === username.toLowerCase())) {
       return res.status(409).json({ success: false, message: 'That username is already in use.' });
     }
 
