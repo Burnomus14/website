@@ -717,9 +717,11 @@ async function reserveInventory(itemLines) {
       .map(([checkoutRequestId]) => checkoutRequestId);
   });
 
-  for (const checkoutRequestId of reservationsToRefresh) {
+  // Check every stuck hold at the same time, and never wait more than 8 seconds for Safaricom here:
+  // a slow status query must not delay the customer's new payment prompt.
+  const refreshOne = async checkoutRequestId => {
     const transaction = await loadPendingTransaction(checkoutRequestId);
-    if (!transaction.checkoutRequestId || transaction.status !== 'PENDING') continue;
+    if (!transaction.checkoutRequestId || transaction.status !== 'PENDING') return;
     try {
       const queryData = await queryMpesaTransaction(checkoutRequestId, transaction);
       if (String(queryData.ResultCode) === '0') {
@@ -733,6 +735,12 @@ async function reserveInventory(itemLines) {
     } catch (error) {
       console.error('M-Pesa reservation check failed:', error.message);
     }
+  };
+  if (reservationsToRefresh.length) {
+    await Promise.race([
+      Promise.all(reservationsToRefresh.map(refreshOne)),
+      new Promise(resolve => setTimeout(resolve, 8000))
+    ]);
   }
 
   return withInventoryLock(async () => {
