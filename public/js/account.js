@@ -45,10 +45,3 @@ function orderCode(id) {
 }
 
 function escapeHtml(value) {
-  const element = document.createElement('span');
-  element.textContent = value == null ? '' : String(value);
-  return element.innerHTML;
-}
-
-async function getAuthHeaders(extra = {}) {
-  const headers = { ...extra };
