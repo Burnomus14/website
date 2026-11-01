@@ -31,6 +31,19 @@ async function fetchSellerConfig() {
 fetchSellerConfig();
 
 
+// Short, readable order code like SCH-7K3Q-M9XD. It is computed from the saved order ID, so it is the same on every page and for old orders too.
+function orderCode(id) {
+  const text = String(id || '');
+  const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  let code = '';
+  for (const seed of [2166136261, 84696351]) {
+    let hash = seed >>> 0;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619) >>> 0;
+    for (let i = 0; i < 4; i++) { code += alphabet[hash & 31]; hash >>>= 5; }
+  }
+  return `SCH-${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
 function escapeHtml(value) {
   const element = document.createElement('span');
   element.textContent = value == null ? '' : String(value);
@@ -39,16 +52,3 @@ function escapeHtml(value) {
 
 async function getAuthHeaders(extra = {}) {
   const headers = { ...extra };
-  const adminToken = localStorage.getItem('adminToken');
-  if (adminToken) {
-    headers['x-admin-token'] = adminToken;
-  } else {
-    await auth.authStateReady();
-    if (auth.currentUser) headers['x-marketplace-token'] = await auth.currentUser.getIdToken();
-  }
-  return headers;
-}
-
-async function api(path, options = {}) {
-  const headers = await getAuthHeaders(options.headers || {});
-  const response = await fetch(`/api/marketplace${path}`, { ...options, headers });
