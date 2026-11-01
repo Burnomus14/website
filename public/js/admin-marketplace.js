@@ -45,10 +45,3 @@ async function api(path, options = {}) {
 }
 
 async function loadStats() {
-  const { stats } = await api('/admin/overview');
-  const container = document.getElementById('marketplaceStats');
-  container.innerHTML = Object.entries(stats || {}).map(([key, value]) => `
-    <div class="marketplace-stat">
-      <strong>${Number(value).toLocaleString()}</strong>
-      <span>${escapeHtml(key.replace(/[A-Z]/g, letter => ` ${letter}`).trim())}</span>
-    </div>
