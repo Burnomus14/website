@@ -671,6 +671,9 @@ const MPESA_BASE_URL = (MPESA_ENVIRONMENT === 'production' || MPESA_ENVIRONMENT 
 
 const activeMpesaTransactions = new Map();
 const inventoryReservations = new Map();
+// A payment prompt that nobody answers must not hold stock forever, so each hold expires.
+const RESERVATION_TTL_MS = (Number(process.env.MPESA_RESERVATION_MINUTES) || 5) * 60 * 1000;
+const reservationTimes = new Map();
 let inventoryLock = Promise.resolve();
 let cachedMpesaToken = null;
 let mpesaTokenExpiresAt = 0;
@@ -682,6 +685,13 @@ function withInventoryLock(callback) {
 }
 
 function reservedQuantity(itemId) {
+  const now = Date.now();
+  for (const [key, startedAt] of reservationTimes) {
+    if (now - startedAt > RESERVATION_TTL_MS) {
+      inventoryReservations.delete(key);
+      reservationTimes.delete(key);
+    }
+  }
   let total = 0;
   for (const lines of inventoryReservations.values()) {
     for (const line of lines) {
@@ -746,6 +756,7 @@ async function reserveInventory(itemLines) {
     }
     const reservationId = crypto.randomUUID();
     inventoryReservations.set(reservationId, itemLines);
+    reservationTimes.set(reservationId, Date.now());
     return reservationId;
   });
 }
@@ -753,12 +764,16 @@ async function reserveInventory(itemLines) {
 function attachInventoryReservation(reservationId, checkoutRequestId) {
   const lines = inventoryReservations.get(reservationId);
   if (!lines) return;
+  const startedAt = reservationTimes.get(reservationId) || Date.now();
   inventoryReservations.delete(reservationId);
+  reservationTimes.delete(reservationId);
   inventoryReservations.set(checkoutRequestId, lines);
+  reservationTimes.set(checkoutRequestId, startedAt);
 }
 
 function releaseInventoryReservation(checkoutRequestId) {
   inventoryReservations.delete(checkoutRequestId);
+  reservationTimes.delete(checkoutRequestId);
 }
 
 async function completeMpesaTransaction(checkoutRequestId, transaction, resultCode) {
