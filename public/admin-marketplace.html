@@ -91,4 +91,22 @@
     <!-- Marketplace Orders -->
     <section class="admin-section-box">
       <h2>Marketplace Orders Flow</h2>
-      <p
+      <p class="section-sub">Recent customer orders and item fulfillment statuses.</p>
+      <label class="field">Search orders<input id="orderSearch" type="search" placeholder="Order code (SCH-XXXX-XXXX), tracking ID, name, phone, item..." autocomplete="off" /></label>
+      <p class="marketplace-muted" id="orderSearchCount"></p>
+      <div class="marketplace-record-list" id="marketplaceOrdersList"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="footer">
+  <p class="footer-copyright">Copyright 2026</p>
+  <div class="footer-signature">schngor</div>
+  <p>Managed from the <a href="/admin.html">admin panel</a>.</p>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/admin-marketplace.js"></script>
+</body>
+</html>
