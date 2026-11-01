@@ -1,8 +1,5 @@
 # The Collection
- feature/inventory-import
 An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, an active shipper delivery network, and a password-protected admin panel.
-An AMOLED black/white catalog and marketplace for your shoe and clothes collection, with customer accounts, a saved basket and wishlist, delivery addresses, order tracking, seller tools, shipper fulfillment, and a password-protected admin panel.
-main
 
 ## Setup (in VS Code)
 
@@ -23,7 +20,7 @@ main
 
 The local `.env` file contains the server port and seller WhatsApp number. It is ignored by Git and should never be committed.
 
-Customer and admin password reset emails are sent directly by Firebase Authentication; no external email provider is required. Reset requests return a generic response so they do not reveal whether an email belongs to an account. Enable **Email/Password** in Firebase Authentication and add the deployed site's domain to its authorized domains. Firebase's password reset email template and delivery limits apply.
+Customer and admin password reset emails are sent directly by Firebase Authentication; no external email provider is required. The reset page tells the visitor whether the email is on file and confirms once the link has been sent (note: this makes it possible to check which emails have accounts). Enable **Email/Password** in Firebase Authentication and add the deployed site's domain to its authorized domains. Firebase's password reset email template and delivery limits apply.
 
 If sign-in reports an invalid email/password, first check the email and password carefully. Accounts created before Firebase Authentication was enabled can use **Forgot password?** once to set a Firebase password; their saved marketplace data is retained. Password recovery requires Firebase Admin credentials on the server to link older marketplace profiles. Confirm the site uses the same Firebase project configured in `public/js/firebase.js`, and that its domain is listed under Firebase Authentication's authorized domains.
 
@@ -45,11 +42,7 @@ Create an app in the Safaricom Daraja portal to obtain the consumer key and secr
 
 ## Marketplace accounts and roles
 
- feature/inventory-import
 Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Active orders can be pushed to WhatsApp for a quicker response from the seller; delivered items no longer show that action. Each order has a unique tracking ID. Customer and admin passwords are managed by Firebase Authentication; account profiles and marketplace roles remain in Firestore. Email verification is required before sign-in. Customers can apply to become sellers; an admin approves seller and shipper roles from the standalone **Marketplace** page in the admin navigation. Sellers can add and edit their own catalog products and mark their orders shipped. Admins configure shipper delivery areas; assigned shippers can mark shipped orders delivered from their account.
-
-Customers can create an account at `/account.html` to keep a basket and wishlist, manage delivery addresses, and track paid M-Pesa orders. Customer and admin passwords are managed by Firebase Authentication; account profiles and marketplace roles remain in Firestore. Email verification is required before sign-in. Customers can apply to become sellers; an admin approves seller, shipper, and additional admin roles from **Marketplace** in the admin panel or account page. Sellers manage their own products and shipping queue, while shippers only receive orders assigned to their configured delivery area.
- main
 
 Marketplace data uses Firestore when Firebase credentials are configured. It is stored in the `marketplace_users`, `marketplace_carts`, `marketplace_wishlists`, `marketplace_addresses`, `marketplace_orders`, `marketplace_shippers`, and `marketplace_categories` collections. Passwords are never stored in marketplace profile documents. Existing marketplace profiles and their order/cart references are preserved; when a customer verifies their email after registration or password recovery, their Firebase identity is linked to their existing profile.
 
@@ -74,9 +67,9 @@ Go to the admin panel, sign in, and use the "Add a new item" form. Each item has
 - **Price** and **caption** — optional
 - **Image** — optional, shown as a placeholder card if left off
 
-## Deploying it live
 Only in-stock items can be added to the basket or checked out with M-Pesa. Sold and archived items remain available for WhatsApp inquiries. Basket quantities cannot exceed available stock, and successful M-Pesa payments reduce the stored quantity.
 
+## Deploying it live
 
 This is a small Node app, so it deploys easily to something like Render, Railway, or a VPS — anywhere that can run `npm install && npm start` and keep a persistent disk for `data/` and `public/uploads/`. (Free static hosts like Netlify/Vercel won't work as-is since this needs a running Node server, not just static files.)
 
@@ -91,6 +84,8 @@ This is a small Node app, so it deploys easily to something like Render, Railway
    - `CLOUDINARY_API_KEY` = your Cloudinary API key
    - `CLOUDINARY_API_SECRET` = your Cloudinary API secret
    - `FIREBASE_SERVICE_ACCOUNT` = the Firebase service-account JSON as a single-line value
+   - `ADMIN_PASSWORD` = a private random value (never leave it unset in production)
+   - `MPESA_ENVIRONMENT` = `production` (anything else sends payments to the Safaricom sandbox), plus `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_PASSKEY`, `MPESA_SHORTCODE` and `MPESA_CALLBACK_URL`
 4. Deploy the web service. Render provides the public URL after the build finishes.
 
 The included `render.yaml` configures `npm install`, `npm start`, and a 1 GB Persistent Disk mounted at `/opt/render/project/src/storage`. When the three Cloudinary variables are set, new admin uploads are stored in the `shoe_collection` Cloudinary folder and use permanent Cloudinary URLs. Without them, the app falls back to the persistent disk and `/uploads/<filename>` URLs. Existing local images must be uploaded again through the admin panel after the first deployment. Persistent disks are tied to one service instance; Cloudinary is preferred for multi-instance deployments.
@@ -102,3 +97,9 @@ Signed-in admins can open **Transactions** from the admin navigation to view com
 ## Customizing the look
 
 All colors, type, and spacing live in `public/css/style.css` under the `:root` block at the top — change the hex values there to retheme the whole site at once.
+
+## Health check, tests and CI
+
+- `GET /health` returns `{ok:true}`; Render uses it (`healthCheckPath`) to avoid routing traffic to a broken deploy.
+- `npm test` runs: `check` (merge-conflict markers + syntax errors), unit tests, and a smoke test that boots the real server.
+- `.github/workflows/ci.yml` runs this on every push and pull request. In Render, set **Auto-Deploy → After CI Checks Pass** so a failing build never goes live.

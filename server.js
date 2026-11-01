@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const compression = require('compression');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const admin = require('firebase-admin');
@@ -12,8 +13,25 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const createMarketplace = require('./marketplace');
+const { createRateLimiter } = require('./lib/rateLimiter');
+const { fetchWithRetry } = require('./lib/fetchWithRetry');
+const { syncProducts } = require('./lib/catalogWrite');
 
 const app = express();
+// Render (and most hosts) put a reverse proxy in front of the app. Without this,
+// req.ip is the proxy's address for every visitor, which breaks per-IP rate limits.
+app.set('trust proxy', 1);
+// Express 4 does not catch rejected promises in async handlers; forward them to the error handler
+// instead of leaving the request hanging.
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const register = app[method].bind(app);
+  app[method] = (routePath, ...handlers) => register(
+    routePath,
+    ...handlers.map(handler => (typeof handler === 'function' && handler.constructor?.name === 'AsyncFunction')
+      ? (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next)
+      : handler)
+  );
+}
 const PORT = process.env.PORT || 3000;
 const SELLER_PHONE_NUMBER = process.env.SELLER_PHONE_NUMBER || '';
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || '';
@@ -50,8 +68,22 @@ const productsCollection = db ? db.collection('products') : null;
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || '';
 const firebaseBucket = FIREBASE_STORAGE_BUCKET && getApps().length ? getStorage().bucket(FIREBASE_STORAGE_BUCKET) : null;
 
-const passwordResetRequests = new Map();
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'qwerty';
+// Never fall back to a guessable default. Admin sign-in uses Firebase accounts, so this
+// value is only stored (hashed) in the seeded admin record; set ADMIN_PASSWORD to choose it.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || crypto.randomBytes(24).toString('hex');
+
+const adminSessionLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, max: 20, message: 'Too many sign-in attempts. Try again in a few minutes.'
+});
+const passwordResetLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, max: 5, message: 'Too many requests. Try again later.'
+});
+const registerLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000, max: 20, message: 'Too many sign-up attempts. Try again later.'
+});
+const stkPushLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000, max: 10, message: 'Too many payment requests. Wait a few minutes and try again.'
+});
 const localAdmins = new Map();
 localAdmins.set('admin', {
   username: 'admin',
@@ -106,9 +138,46 @@ if (STORAGE_DIR && !fs.existsSync(DATA_FILE)) {
 const activeSessions = new Set();
 
 // ---- Middleware ----
+// Health check for Render: cheap on purpose (no database call), so it answers even when Firestore is slow.
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()), firebaseConfigured: Boolean(db) });
+});
+
+// Baseline security headers that cannot break existing pages.
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'strict-origin-when-cross-origin'
+  });
+  if (req.secure) res.set('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
+
+app.use(compression());
+
+// Log only failures and slow API calls (set LOG_REQUESTS=1 to log every call). Query strings are never logged.
+app.use('/api', (req, res, next) => {
+  const started = process.hrtime.bigint();
+  res.on('finish', () => {
+    const ms = Math.round(Number(process.hrtime.bigint() - started) / 1e6);
+    const line = `${req.method} ${req.originalUrl.split('?')[0]} ${res.statusCode} ${ms}ms`;
+    if (res.statusCode >= 500 || ms > 2000) console.warn(`[api slow/error] ${line}`);
+    else if (process.env.LOG_REQUESTS === '1') console.log(`[api] ${line}`);
+  });
+  next();
+});
+
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOADS_DIR));
+// Uploaded file names are random per upload, so they can be cached hard.
+app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', immutable: true }));
+// Pages and scripts always revalidate (ETag) so a deploy shows up immediately; images are cached for a day.
+const STATIC_IMAGE_OR_FONT = /\.(?:png|jpe?g|gif|webp|avif|svg|ico|woff2?)$/i;
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    res.setHeader('Cache-Control', STATIC_IMAGE_OR_FONT.test(filePath) ? 'public, max-age=86400' : 'no-cache');
+  }
+}));
 
 function requireAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
@@ -160,23 +229,19 @@ async function readCatalogItems() {
   });
 }
 
+// The public gallery is read far more often than it changes, so keep the list for a few seconds.
+// Checkout and stock changes never use this copy: they call readCatalogItems() directly.
+const PUBLIC_CATALOG_TTL_MS = 15000;
+let publicCatalogCache = { at: 0, items: null };
+
 async function writeItems(items) {
+  publicCatalogCache = { at: 0, items: null };
   if (!db) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(items, null, 2));
     return;
   }
-
-  const existing = await productsCollection.get();
-  const nextIds = new Set(items.map(item => item.id));
-  const batch = db.batch();
-  existing.docs.forEach(doc => {
-    if (!nextIds.has(doc.id)) batch.delete(doc.ref);
-  });
-  items.forEach(item => {
-    const { id, ...data } = item;
-    batch.set(productsCollection.doc(id), data);
-  });
-  await batch.commit();
+  await syncProducts({ db, productsCollection, items });
+  publicCatalogCache = { at: 0, items: null };
 }
 
 // ---- Image upload ----
@@ -188,18 +253,39 @@ const storage = multer.diskStorage({
     cb(null, name);
   }
 });
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif)$/i;
 const upload = multer({
   storage,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+  limits: { fileSize: 12 * 1024 * 1024, files: 8 }, // 12MB each, up to 8 files
   fileFilter: (req, file, cb) => {
-    const ok = /image\/(jpeg|png|webp|gif)/.test(file.mimetype);
-    cb(ok ? null : new Error('Only image files are allowed'), ok);
+    // Phone galleries sometimes send "image/jpg" or an empty/octet-stream type, so also trust a known image extension.
+    const typeOk = /^image\/(jpe?g|png|webp|gif)$/i.test(file.mimetype || '');
+    const extOk = IMAGE_EXTENSIONS.test(file.originalname || '') && (!file.mimetype || file.mimetype === 'application/octet-stream' || file.mimetype.startsWith('image/'));
+    if (typeOk || extOk) return cb(null, true);
+    const error = new Error('Unsupported image format. Please choose a JPG, PNG, WebP or GIF photo.');
+    error.status = 400;
+    error.uploadError = true;
+    cb(error);
   }
 });
-const uploadImages = upload.fields([
+const uploadImagesRaw = upload.fields([
   { name: 'images', maxCount: 8 },
   { name: 'image', maxCount: 1 }
 ]);
+// Turn upload failures into clear JSON messages instead of a generic server error.
+function uploadImages(req, res, next) {
+  uploadImagesRaw(req, res, error => {
+    if (!error) return next();
+    const messages = {
+      LIMIT_FILE_SIZE: 'One of the photos is larger than 12 MB. Choose a smaller photo.',
+      LIMIT_FILE_COUNT: 'You can upload at most 8 photos at a time.',
+      LIMIT_UNEXPECTED_FILE: 'You can upload at most 8 photos at a time.'
+    };
+    const message = messages[error.code] || (error.uploadError ? error.message : 'The photos could not be uploaded. Please try again.');
+    if (!messages[error.code] && !error.uploadError) console.error('Image upload failed:', error.message);
+    res.status(400).json({ success: false, message });
+  });
+}
 
 function getUploadedFiles(req) {
   if (req.files?.images?.length) return req.files.images;
@@ -290,6 +376,7 @@ const marketplace = createMarketplace({
   removeUnreferencedMedia,
   removeCloudinaryMedia
 });
+app.use('/api/marketplace/auth/register', registerLimiter);
 app.use('/api/marketplace', marketplace.router);
 app.use('/api/marketplace', (error, req, res, next) => {
   console.error('Marketplace request failed:', error);
@@ -323,7 +410,7 @@ async function ensureAdminExists() {
 
 ensureAdminExists();
 
-app.post('/api/admin/session', async (req, res) => {
+app.post('/api/admin/session', adminSessionLimiter, async (req, res) => {
   if (!db || !getApps().length) {
     return res.status(503).json({ success: false, message: 'Admin sign-in is temporarily unavailable.' });
   }
@@ -413,20 +500,12 @@ async function sendAccountPasswordReset(req, res, accountType) {
     });
   }
 
-  const now = Date.now();
-  const requestIp = req.ip || req.socket.remoteAddress || 'unknown';
-  const recentRequests = (passwordResetRequests.get(requestIp) || [])
-    .filter(timestamp => now - timestamp < 15 * 60 * 1000);
-  if (recentRequests.length >= 5) {
-    return res.status(429).json({ success: false, message: 'Too many requests. Try again later.' });
-  }
-  passwordResetRequests.set(requestIp, [...recentRequests, now]);
-
-  const genericResponse = {
+  const sentResponse = {
     success: true,
+    found: true,
     message: accountType === 'admin'
       ? 'A password reset link has been sent to your admin email.'
-      : 'If an account matches that email, a password reset link will be sent.'
+      : 'A password reset link has been sent to your email.'
   };
 
   try {
@@ -439,7 +518,11 @@ async function sendAccountPasswordReset(req, res, accountType) {
           message: 'Password reset links can only be sent to emails with the admin title.'
         });
       }
-      return res.status(202).json(genericResponse);
+      return res.status(404).json({
+        success: false,
+        found: false,
+        message: 'No account found with that email address.'
+      });
     }
 
     const accountDoc = snapshot.docs[0];
@@ -459,7 +542,7 @@ async function sendAccountPasswordReset(req, res, accountType) {
       });
     }
     if (account.firebaseUid && account.firebaseUid !== firebaseUser.uid) {
-      return res.status(202).json(genericResponse);
+      return res.status(200).json(sentResponse);
     }
     await accountDoc.ref.set({
       firebaseUid: firebaseUser.uid,
@@ -470,7 +553,7 @@ async function sendAccountPasswordReset(req, res, accountType) {
       try {
         const continueUrl = `${req.protocol}://${req.get('host')}/${accountType === 'admin' ? 'admin-login.html' : 'account.html'}`;
         const resetUrl = await getAuth().generatePasswordResetLink(email, { url: continueUrl });
-        await fetch('https://api.resend.com/emails', {
+        await fetchWithRetry('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -483,13 +566,13 @@ async function sendAccountPasswordReset(req, res, accountType) {
             text: `Use this link to reset your password.\n\n${resetUrl}`,
             html: `<p>Use the link below to reset your password.</p><p><a href="${resetUrl}">Reset password</a></p>`
           })
-        });
+        }, { timeoutMs: 10000 });
       } catch (emailErr) {
         console.warn('Optional Resend dispatch note:', emailErr.message);
       }
     }
 
-    return res.status(200).json(genericResponse);
+    return res.status(200).json(sentResponse);
   } catch (error) {
     console.error(`${accountType} password reset request failed:`, error.message);
     return res.status(503).json({
@@ -499,12 +582,12 @@ async function sendAccountPasswordReset(req, res, accountType) {
   }
 }
 
-app.post('/api/auth/password-reset/request', async (req, res) => {
+app.post('/api/auth/password-reset/request', passwordResetLimiter, async (req, res) => {
   const accountType = req.body?.accountType === 'admin' ? 'admin' : 'customer';
   return sendAccountPasswordReset(req, res, accountType);
 });
 
-app.post('/api/admin/password-reset/request', (req, res) => sendAccountPasswordReset(req, res, 'admin'));
+app.post('/api/admin/password-reset/request', passwordResetLimiter, (req, res) => sendAccountPasswordReset(req, res, 'admin'));
 
 app.get('/api/session', requireAuth, (req, res) => {
   res.json({ authenticated: true });
@@ -518,7 +601,11 @@ app.post('/api/logout', requireAuth, (req, res) => {
 // ---- Public routes ----
 app.get('/api/items', async (req, res) => {
   try {
+    if (publicCatalogCache.items && Date.now() - publicCatalogCache.at < PUBLIC_CATALOG_TTL_MS) {
+      return res.json(publicCatalogCache.items);
+    }
     const items = await readCatalogItems();
+    publicCatalogCache = { at: Date.now(), items };
     res.json(items);
   } catch (error) {
     console.error('FIREBASE FETCH ERROR:', error.message);
@@ -544,6 +631,16 @@ const MPESA_SHORTCODE = process.env.MPESA_SHORTCODE || '174379';
 const MPESA_TRANSACTION_TYPE = process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline';
 const MPESA_CALLBACK_URL = process.env.MPESA_CALLBACK_URL || '';
 const mpesaTransactionsCollection = db ? db.collection('mpesa_transactions') : null;
+
+// Loud startup warnings for settings that silently misbehave in production.
+if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+  if (!['production', 'live'].includes(MPESA_ENVIRONMENT)) {
+    console.warn('⚠️  MPESA_ENVIRONMENT is "' + MPESA_ENVIRONMENT + '": payments go to the Safaricom SANDBOX and no real money moves. Set MPESA_ENVIRONMENT=production in Render when you go live.');
+  }
+  if (!process.env.ADMIN_PASSWORD) {
+    console.warn('⚠️  ADMIN_PASSWORD is not set; a random one was generated for this run. Set ADMIN_PASSWORD in Render if you rely on it.');
+  }
+}
 
 function formatMpesaPhone(phone) {
   let cleaned = String(phone || '').replace(/[^0-9]/g, '');
@@ -717,9 +814,9 @@ async function getMpesaToken() {
     return cachedMpesaToken;
   }
   const auth = Buffer.from(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`).toString('base64');
-  const res = await fetch(`${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
+  const res = await fetchWithRetry(`${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
     headers: { Authorization: `Basic ${auth}` }
-  });
+  }, { timeoutMs: 12000, retries: 2 });
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`Daraja OAuth failed (${res.status}): ${errorText}`);
@@ -735,7 +832,7 @@ async function queryMpesaTransaction(checkoutRequestId, transaction) {
   const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
   const shortcode = transaction.businessShortCode || MPESA_SHORTCODE;
   const password = Buffer.from(`${shortcode}${MPESA_PASSKEY}${timestamp}`).toString('base64');
-  const response = await fetch(`${MPESA_BASE_URL}/mpesa/stkpushquery/v1/query`, {
+  const response = await fetchWithRetry(`${MPESA_BASE_URL}/mpesa/stkpushquery/v1/query`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -747,7 +844,7 @@ async function queryMpesaTransaction(checkoutRequestId, transaction) {
       Timestamp: timestamp,
       CheckoutRequestID: checkoutRequestId
     })
-  });
+  }, { timeoutMs: 15000, retries: 2 });
   return response.json();
 }
 
@@ -775,7 +872,7 @@ async function loadPendingTransaction(checkoutRequestId) {
 }
 
 // ---- M-Pesa Endpoints ----
-app.post('/api/mpesa/stkpush', async (req, res) => {
+app.post('/api/mpesa/stkpush', stkPushLimiter, async (req, res) => {
   const { phoneNumber, itemName, customerName, itemId, itemLines: rawItemLines } = req.body;
   if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET || !MPESA_PASSKEY || !MPESA_CALLBACK_URL) {
     return res.status(503).json({
@@ -866,14 +963,15 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
       TransactionDesc: 'Collection'
     };
 
-    let stkRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
+    // No automatic retry here: repeating a push could send the customer a second payment prompt.
+    let stkRes = await fetchWithRetry(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)
-    });
+    }, { timeoutMs: 30000 });
 
     let stkData = await stkRes.json();
 
@@ -886,14 +984,14 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
       payload.PartyB = shortcodeToUse;
       payload.TransactionType = 'CustomerPayBillOnline';
 
-      stkRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
+      stkRes = await fetchWithRetry(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
-      });
+      }, { timeoutMs: 30000 });
       stkData = await stkRes.json();
     }
 
@@ -1208,7 +1306,34 @@ app.delete('/api/items/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(PORT, () => {
+// Last-resort error handler: log the failure and answer with JSON instead of hanging or leaking a stack trace.
+app.use((error, req, res, next) => {
+  const status = Number(error.status || error.statusCode) || 500;
+  console.error(`Unhandled error on ${req.method} ${req.path}:`, error.message);
+  if (res.headersSent) return next(error);
+  res.status(status).json({
+    success: false,
+    message: status === 400 ? 'The request could not be read.' : status === 413 ? 'The upload is too large.' : 'Something went wrong. Please try again.'
+  });
+});
+
+const server = app.listen(PORT, () => {
   console.log(`Site running at http://localhost:${PORT}`);
   console.log(`Admin panel at   http://localhost:${PORT}/admin.html`);
+});
+// Stay open longer than the hosting proxy's idle timeout so it never reuses a connection we already closed.
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
+function shutdown(signal) {
+  console.log(`${signal} received, finishing open requests before exit.`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('unhandledRejection', reason => console.error('Unhandled promise rejection:', reason));
+process.on('uncaughtException', error => {
+  console.error('Uncaught exception, exiting so the host restarts the service:', error);
+  process.exit(1);
 });

@@ -52,6 +52,33 @@ function createMarketplace({
     return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
   }
 
+  // Direct lookups: read one document, or only the matching documents, instead of a whole collection.
+  async function getRecord(collection, id) {
+    if (!collections.includes(collection)) throw new Error(`Unknown marketplace collection: ${collection}`);
+    if (id === undefined || id === null || id === '') return null;
+    if (!db) return (readLocalStore()[collection] || {})[id] || null;
+    const doc = await db.collection(`marketplace_${collection}`).doc(String(id)).get();
+    return doc.exists ? { ...doc.data(), id: doc.id } : null;
+  }
+
+  async function findRecords(collection, field, value, limit) {
+    if (!collections.includes(collection)) throw new Error(`Unknown marketplace collection: ${collection}`);
+    if (value === undefined || value === null || value === '') return [];
+    if (!db) {
+      const matches = Object.values(readLocalStore()[collection] || {}).filter(record => record[field] === value);
+      return limit ? matches.slice(0, limit) : matches;
+    }
+    let query = db.collection(`marketplace_${collection}`).where(field, '==', value);
+    if (limit) query = query.limit(limit);
+    const snapshot = await query.get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+  }
+
+  // One record owned by a user (cart, wishlist): stored under the user's id, with a userId fallback for older data.
+  async function getUserOwnedRecord(collection, userId) {
+    return (await getRecord(collection, userId)) || (await findRecords(collection, 'userId', userId, 1))[0] || null;
+  }
+
   async function saveRecord(collection, record) {
     if (!collections.includes(collection)) throw new Error(`Unknown marketplace collection: ${collection}`);
     if (!record.id) throw new Error('A marketplace record ID is required.');
@@ -86,10 +113,12 @@ function createMarketplace({
   }
 
   async function getUser(userId) {
-    const users = await listRecords('users');
-    const user = users.find(record =>
-      (record.id === userId || record.firebaseUid === userId) && !record.isRestricted
-    ) || null;
+    // Runs on every signed-in request, so never read the whole users collection here.
+    const candidates = [];
+    const byId = await getRecord('users', userId);
+    if (byId) candidates.push(byId);
+    if (!byId || byId.isRestricted) candidates.push(...await findRecords('users', 'firebaseUid', userId, 2));
+    const user = candidates.find(record => !record.isRestricted) || null;
 
     if (user?.firebaseUid && user.passwordHash) {
       delete user.passwordHash;
@@ -175,14 +204,26 @@ function createMarketplace({
     await saveRecord('orders', order);
   }
 
+  // Only touches orders whose tracking ID is malformed (or duplicated, when the full list is available).
+  // Counting once keeps this linear instead of re-scanning every order for every order.
+  async function repairTrackingIds(orders, isFullList) {
+    const counts = new Map();
+    if (isFullList) for (const order of orders) counts.set(order.trackingId, (counts.get(order.trackingId) || 0) + 1);
+    for (const order of orders) {
+      const malformed = !/^[A-F0-9]{16}$/.test(order.trackingId || '');
+      if (malformed || (isFullList && counts.get(order.trackingId) > 1)) {
+        await ensureOrderTrackingId(order, isFullList ? orders : undefined);
+      }
+    }
+  }
+
   async function getCatalogItem(id) {
     const items = await readCatalogItems();
     return items.find(item => String(item.id) === String(id)) || null;
   }
 
   async function loadCart(userId) {
-    const carts = await listRecords('carts');
-    return carts.find(cart => cart.userId === userId) || { id: userId, userId, items: [], updatedAt: Date.now() };
+    return await getUserOwnedRecord('carts', userId) || { id: userId, userId, items: [], updatedAt: Date.now() };
   }
 
   async function populateCart(cart) {
@@ -198,12 +239,13 @@ function createMarketplace({
 
   async function recordPaidOrder(transaction) {
     const orderId = transaction.orderId || transaction.checkoutRequestId || makeId();
-    const orders = await listRecords('orders');
-    const existing = orders.find(order => order.id === orderId);
+    // Repeated callbacks and status polls land here again: answer from a single document read.
+    const existing = await getRecord('orders', orderId);
     if (existing) {
-      await ensureOrderTrackingId(existing, orders);
+      if (!/^[A-F0-9]{16}$/.test(existing.trackingId || '')) await ensureOrderTrackingId(existing);
       return existing;
     }
+    const orders = await listRecords('orders');
 
     const productItems = await readCatalogItems();
     const orderItems = (transaction.itemLines || []).map(line => {
@@ -318,8 +360,7 @@ function createMarketplace({
   router.patch('/profile', authenticate, requireRole('customer', 'seller', 'shipper', 'admin'), async (req, res) => {
     if (req.marketAdminToken) return res.status(400).json({ success: false, message: 'Edit admin details in the admin panel.' });
 
-    const users = await listRecords('users');
-    const user = users.find(record => record.id === req.marketUser.id);
+    const user = await getRecord('users', req.marketUser.id);
     if (!user) return res.status(404).json({ success: false, message: 'Account not found.' });
 
     const firstName = req.body.firstName === undefined ? user.firstName : cleanText(req.body.firstName, 80);
@@ -668,8 +709,7 @@ function createMarketplace({
   });
 
   router.get('/wishlist', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
-    const lists = await listRecords('wishlists');
-    const wishlist = lists.find(list => list.userId === req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
+    const wishlist = await getUserOwnedRecord('wishlists', req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
     const products = await readCatalogItems();
 
     res.json({ success: true, wishlist: wishlist.productIds.map(id => products.find(product => String(product.id) === id)).filter(Boolean) });
@@ -678,8 +718,7 @@ function createMarketplace({
   router.put('/wishlist/:productId', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
     if (!await getCatalogItem(req.params.productId)) return res.status(404).json({ success: false, message: 'Product not found.' });
 
-    const lists = await listRecords('wishlists');
-    const wishlist = lists.find(list => list.userId === req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
+    const wishlist = await getUserOwnedRecord('wishlists', req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
     if (!wishlist.productIds.includes(String(req.params.productId))) wishlist.productIds.push(String(req.params.productId));
 
     await saveRecord('wishlists', wishlist);
@@ -688,8 +727,7 @@ function createMarketplace({
   });
 
   router.delete('/wishlist/:productId', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
-    const lists = await listRecords('wishlists');
-    const wishlist = lists.find(list => list.userId === req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
+    const wishlist = await getUserOwnedRecord('wishlists', req.marketUser.id) || { id: req.marketUser.id, userId: req.marketUser.id, productIds: [] };
     wishlist.productIds = wishlist.productIds.filter(id => id !== String(req.params.productId));
     await saveRecord('wishlists', wishlist);
 
@@ -697,8 +735,8 @@ function createMarketplace({
   });
 
   router.get('/addresses', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
-    const addresses = await listRecords('addresses');
-    res.json({ success: true, addresses: addresses.filter(address => address.userId === req.marketUser.id) });
+    const addresses = await findRecords('addresses', 'userId', req.marketUser.id);
+    res.json({ success: true, addresses });
   });
 
   router.post('/addresses', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
@@ -726,8 +764,8 @@ function createMarketplace({
   });
 
   router.patch('/addresses/:id', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
-    const addresses = await listRecords('addresses');
-    const address = addresses.find(record => record.id === req.params.id && record.userId === req.marketUser.id);
+    const found = await getRecord('addresses', req.params.id);
+    const address = found && found.userId === req.marketUser.id ? found : null;
     if (!address) return res.status(404).json({ success: false, message: 'Address not found.' });
 
     for (const key of ['recipient', 'phone', 'country', 'state', 'city', 'street', 'addressLine', 'postalCode']) {
@@ -744,8 +782,8 @@ function createMarketplace({
   });
 
   router.delete('/addresses/:id', authenticate, requireRole('customer', 'seller', 'admin'), async (req, res) => {
-    const addresses = await listRecords('addresses');
-    const address = addresses.find(record => record.id === req.params.id && record.userId === req.marketUser.id);
+    const found = await getRecord('addresses', req.params.id);
+    const address = found && found.userId === req.marketUser.id ? found : null;
     if (!address) return res.status(404).json({ success: false, message: 'Address not found.' });
 
     await deleteRecord('addresses', address.id);
@@ -754,12 +792,12 @@ function createMarketplace({
   });
 
   router.get('/orders', authenticate, async (req, res) => {
-    const orders = await listRecords('orders');
-    for (const order of orders) {
-      await ensureOrderTrackingId(order, orders);
-    }
-
     const user = req.marketUser;
+    const isCustomerOnly = !user.roles.includes('admin') && !user.roles.includes('seller');
+    // Customers only need their own orders; sellers and admins still need the full list.
+    const orders = isCustomerOnly ? await findRecords('orders', 'userId', user.id) : await listRecords('orders');
+    await repairTrackingIds(orders, !isCustomerOnly);
+
     let visible;
 
     if (user.roles.includes('admin')) visible = orders;
@@ -789,10 +827,10 @@ function createMarketplace({
     const orders = await listRecords('orders');
     const visible = [];
 
+    await repairTrackingIds(orders, true);
     for (const order of orders) {
       const sellerItems = order.items.filter(item => item.sellerId === req.marketUser.id);
       if (!sellerItems.length) continue;
-      await ensureOrderTrackingId(order, orders);
       visible.push({ ...order, items: sellerItems });
     }
 

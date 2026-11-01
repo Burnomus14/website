@@ -3,12 +3,20 @@
   "version": "1.0.0",
   "description": "AMOLED black/white catalog site for a shoe and clothes collection, with an admin panel.",
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "check": "node scripts/check.js",
+    "test:unit": "node scripts/run-tests.js",
+    "smoke": "node scripts/smoke.js",
+    "test": "npm run check && npm run test:unit && npm run smoke"
   },
   "dependencies": {
     "cloudinary": "^2.11.0",
+    "compression": "^1.8.2",
     "dotenv": "^18.0.1",
     "express": "^4.19.2",
     "express-fileupload": "^1.5.2",

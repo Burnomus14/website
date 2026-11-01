@@ -1,10 +1,11 @@
 services:
   - type: web
     name: shoe-collection-site
-    branch: feature/inventory-import
+    branch: main
     runtime: node
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /health
     disk:
       name: shoe-collection-data
       mountPath: /opt/render/project/src/storage
@@ -30,6 +31,8 @@ services:
         sync: false
       - key: FIREBASE_PROJECT_ID
         value: collection-6d7f6
+      - key: ADMIN_PASSWORD
+        sync: false
       - key: MPESA_ENVIRONMENT
         sync: false
       - key: MPESA_CONSUMER_KEY
