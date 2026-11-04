@@ -193,6 +193,26 @@ function renderMarketplaceOrders() {
   `).join('');
 }
 
+async function loadAnalytics() {
+  const response = await fetch('/api/admin/analytics?days=30', { headers: { 'x-admin-token': token || '' } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success === false) throw new Error(data.message || 'Could not load visitor statistics.');
+  const t = data.totals;
+  const card = (value, label) => `<div class="marketplace-stat"><strong>${Number(value).toLocaleString()}</strong><span>${escapeHtml(label)}</span></div>`;
+  document.getElementById('analyticsTotals').innerHTML =
+    card(t.visitors, 'visitors') + card(t.returning, 'returning visitors') + card(t.view, 'page visits') + card(t.product_view, 'piece views') + card(t.add_to_cart, 'added to basket') + card(t.paid, 'items paid');
+  document.getElementById('analyticsFunnel').innerHTML = data.funnel.map(step => `
+    <article class="marketplace-record"><div><h4>${escapeHtml(step.step)}</h4>
+      <p>${step.percentOfPrevious === undefined ? 'Starting point' : `${step.percentOfPrevious}% of the step before`}</p></div>
+      <span class="marketplace-status">${Number(step.count).toLocaleString()}</span></article>`).join('');
+  document.getElementById('analyticsProducts').innerHTML = data.topProducts.length
+    ? data.topProducts.map(p => `<article class="marketplace-record"><div><h4>${escapeHtml(p.name)}</h4>
+        <p>${p.product_view} views · ${p.add_to_cart} added to basket · ${p.checkout_start} started checkout · ${p.paid} paid</p></div></article>`).join('')
+    : '<div class="marketplace-empty">No piece views counted yet.</div>';
+  document.getElementById('analyticsDaily').innerHTML = data.daily.slice(-14).reverse().map(d => `
+    <article class="marketplace-record"><div><h4>${escapeHtml(d.day)}</h4><p>${d.visitors} visitors · ${d.views} page visits · ${d.paid} items paid</p></div></article>`).join('');
+}
+
 async function loadAllMarketplaceData() {
   if (!token) {
     window.location.href = '/admin-login.html';
@@ -209,7 +229,8 @@ async function loadAllMarketplaceData() {
       loadUsers(),
       loadShippers(),
       loadCategories(),
-      loadMarketplaceOrders()
+      loadMarketplaceOrders(),
+      loadAnalytics().catch(error => showToast(error.message))
     ]);
     statusMessage.hidden = true;
     marketplaceWrap.hidden = false;

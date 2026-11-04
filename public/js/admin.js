@@ -66,6 +66,30 @@ function showToast(msg) {
   setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
+document.getElementById('backupBtn')?.addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = 'Preparing...';
+  try {
+    const response = await fetch('/api/admin/backup', { headers: { 'x-admin-token': token || '' } });
+    if (!response.ok) throw new Error('Could not create the backup.');
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `schngor-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
+
 logoutBtn.addEventListener('click', async () => {
   try {
     await authedFetch('/api/logout', { method: 'POST' });

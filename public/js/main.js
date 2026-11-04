@@ -23,6 +23,48 @@ let lastFocusedElement = null;
 let activeGalleryImages = [];
 let activeGalleryIndex = 0;
 
+// Private visit counting: no cookies, nothing that identifies the visitor. Skipped for signed-in admins.
+function track(event, productId) {
+  try {
+    if (localStorage.getItem('adminToken')) return;
+    const body = JSON.stringify({ event, productId: productId ? String(productId) : undefined });
+    if (navigator.sendBeacon) navigator.sendBeacon('/api/track', new Blob([body], { type: 'application/json' }));
+    else fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+  } catch { /* counting must never break the shop */ }
+}
+// Optional visit cookie, set only after the visitor says yes. The banner below asks once.
+function visitCookie() { return /(?:^|;\s*)sch_vid=/.test(document.cookie); }
+function acceptVisitCookie() {
+  if (visitCookie()) return;
+  const bytes = new Uint8Array(12);
+  (window.crypto || window.msCrypto).getRandomValues(bytes);
+  const id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  const day = new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);
+  document.cookie = `sch_vid=${id}.${day}; max-age=31536000; path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
+}
+function removeVisitCookie() { document.cookie = 'sch_vid=; max-age=0; path=/; SameSite=Lax'; }
+function setupCookieBanner() {
+  let choice = null;
+  try { choice = localStorage.getItem('cookieChoice'); } catch { /* private mode */ }
+  if (choice === 'yes') { acceptVisitCookie(); return; }
+  if (choice === 'no') { removeVisitCookie(); return; }
+  const bar = document.createElement('div');
+  bar.setAttribute('role', 'dialog');
+  bar.setAttribute('aria-label', 'Cookie choice');
+  bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;max-width:560px;margin:0 auto;padding:16px 18px;background:#050505;border:1px solid #1f1f1f;color:#f2f2f0;font-family:inherit;font-size:13px;line-height:1.6;box-shadow:0 8px 40px #000';
+  bar.innerHTML = '<p style="margin:0 0 12px;color:#8a8a86">We use one small cookie to count visits and see which pieces people like. No ads, nothing sold. <a href="/privacy.html" style="color:#f2f2f0">Privacy policy</a></p><div style="display:flex;gap:8px"><button type="button" class="btn" data-choice="yes">Accept</button><button type="button" class="btn ghost" data-choice="no">No thanks</button></div>';
+  bar.addEventListener('click', event => {
+    const picked = event.target.closest('[data-choice]');
+    if (!picked) return;
+    try { localStorage.setItem('cookieChoice', picked.dataset.choice); } catch { /* ignore */ }
+    if (picked.dataset.choice === 'yes') acceptVisitCookie(); else removeVisitCookie();
+    bar.remove();
+  });
+  document.body.appendChild(bar);
+}
+if (document.body) setupCookieBanner(); else document.addEventListener('DOMContentLoaded', setupCookieBanner);
+track('view');
+
 function setCollectionView(view) {
   collectionView = view === 'compact' ? 'compact' : 'cards';
   galleryEl.classList.toggle('compact-view', collectionView === 'compact');
@@ -74,6 +116,9 @@ async function loadItems() {
     await loadSignedInCart().catch(error => showToast(error.message));
     reconcileCartWithStock();
     render();
+    // A shared link (/p/<id>) arrives here as /?item=<id>: open that piece straight away.
+    const sharedItem = new URLSearchParams(window.location.search).get('item');
+    if (sharedItem && getCurrentProduct(sharedItem)) openProductModal(sharedItem);
   } catch {
     galleryEl.innerHTML = `<div class="empty-state"><h2>Couldn't load the collection</h2><p>Make sure the server is running, then refresh.</p></div>`;
   }
@@ -228,6 +273,7 @@ function openProductModal(productId) {
 
   activeProduct = product;
   lastFocusedElement = document.activeElement;
+  track('product_view', product.id);
   const images = getItemImages(product);
   activeGalleryImages = images;
   activeGalleryIndex = 0;
@@ -306,6 +352,7 @@ function addToCart(productId, button) {
   }
   if (existing) existing.quantity += 1;
   else cart.push({ ...product, quantity: 1 });
+  track('add_to_cart', product.id);
   saveCart();
   updateCartCount();
   showAddedFeedback(button);
@@ -566,6 +613,18 @@ clearSearch.addEventListener('click', () => {
 });
 
 document.getElementById('close-product-modal').addEventListener('click', closeProductModal);
+// Share the product's link. On phones this opens the share sheet; elsewhere it copies the link.
+document.getElementById('modal-share')?.addEventListener('click', async () => {
+  if (!activeProduct) return;
+  const url = `${window.location.origin}/p/${encodeURIComponent(activeProduct.id)}`;
+  try {
+    if (navigator.share) await navigator.share({ title: activeProduct.name || 'The Collection', url });
+    else { await navigator.clipboard.writeText(url); showToast('Link copied.'); }
+  } catch (error) {
+    if (error && error.name !== 'AbortError') showToast(url);
+  }
+});
+
 document.getElementById('gallery-prev').addEventListener('click', () => {
   changeGalleryImage(activeGalleryImages, activeGalleryIndex - 1);
 });
@@ -662,6 +721,7 @@ async function startMpesaCheckout(order) {
   }
   currentCheckout = { ...order, trackedOrder: true };
   sessionStorage.removeItem(pendingCheckoutKey);
+  for (const line of order.itemLines || []) track('checkout_start', line.itemId);
   const modal = document.getElementById('mpesaCheckoutModal');
   document.getElementById('mpesaOrderTitle').textContent = order.itemName;
   document.getElementById('mpesaOrderPrice').textContent = formatKsh(order.amount);
@@ -776,7 +836,7 @@ async function submitMpesaCheckout(event) {
 
 function startPaymentPolling(checkoutRequestId) {
   if (mpesaPollTimer) clearInterval(mpesaPollTimer);
-  mpesaPollTimer = setInterval(() => pollPaymentStatus(checkoutRequestId), 3000);
+  mpesaPollTimer = setInterval(() => pollPaymentStatus(checkoutRequestId), 2000);
   pollPaymentStatus(checkoutRequestId);
 }
 
