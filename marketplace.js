@@ -1012,6 +1012,17 @@ await saveRecord('users', user);
     router,
     resolveUserToken,
     createPaidOrder: recordPaidOrder,
+    // Every marketplace record, for the admin backup download. Password hashes are never included.
+    exportAll: async () => {
+      const data = {};
+      for (const name of collections) {
+        data[name] = (await listRecords(name)).map(record => {
+          const { passwordHash, ...safe } = record;
+          return safe;
+        });
+      }
+      return data;
+    },
     findAddress: async (userId, addressId) => {
       const addresses = await listRecords('addresses');
       return addresses.find(address => address.id === addressId && address.userId === userId) || null;

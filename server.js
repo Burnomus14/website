@@ -14,6 +14,8 @@ const path = require('path');
 const crypto = require('crypto');
 const createMarketplace = require('./marketplace');
 const { createRateLimiter } = require('./lib/rateLimiter');
+const siteMeta = require('./lib/siteMeta');
+const { createAnalytics } = require('./lib/analytics');
 const { fetchWithRetry } = require('./lib/fetchWithRetry');
 const { syncProducts } = require('./lib/catalogWrite');
 
@@ -172,6 +174,66 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use(express.json());
+// ---- Private visit statistics (no cookies, no IP addresses stored) ----
+const analytics = createAnalytics({ db, dataDir: DATA_DIR, FieldValue, secret: process.env.API_SECRET_KEY || '' });
+setInterval(() => analytics.flush(), 60000).unref();
+const trackLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 120, message: 'Too many events.' });
+app.post('/api/track', trackLimiter, (req, res) => {
+  const body = req.body || {};
+  const cookie = /(?:^|;\s*)sch_vid=([a-f0-9]{16,32})\.(\d{4}-\d{2}-\d{2})(?:;|$)/.exec(req.headers.cookie || '');
+  analytics.record(String(body.event || ''), {
+    visitorId: cookie ? cookie[1] : '',
+    firstSeenDay: cookie ? cookie[2] : '',
+    productId: body.productId ? String(body.productId).slice(0, 40) : '',
+    ip: req.ip || '',
+    userAgent: String(req.get('user-agent') || '').slice(0, 300)
+  });
+  res.status(204).end();
+});
+app.get('/api/admin/analytics', requireAuth, async (req, res) => {
+  try {
+    const names = {};
+    for (const item of await readCatalogItems()) names[String(item.id)] = item.name;
+    res.json({ success: true, ...(await analytics.summary(Number(req.query.days) || 30, names)) });
+  } catch (error) {
+    console.error('Analytics summary failed:', error.message);
+    res.status(500).json({ success: false, message: 'Could not load visitor statistics.' });
+  }
+});
+
+// ---- Page tags, link previews, robots.txt and sitemap ----
+const PLAUSIBLE_DOMAIN = (process.env.PLAUSIBLE_DOMAIN || '').trim();
+function siteBaseUrl(req) {
+  const configured = (process.env.SITE_URL || '').trim().replace(/\/+$/, '');
+  return /^https?:\/\//i.test(configured) ? configured : `${req.protocol}://${req.get('host')}`;
+}
+app.get('/robots.txt', (req, res) => res.type('text/plain').send(siteMeta.robotsTxt(siteBaseUrl(req))));
+app.get('/sitemap.xml', async (req, res) => {
+  let items = [];
+  try { items = (await readCatalogItems()).filter(item => item.status !== 'sold'); } catch (error) { console.error('Sitemap could not read products:', error.message); }
+  res.type('application/xml').send(siteMeta.sitemapXml(siteBaseUrl(req), items));
+});
+// /p/<product id> is the link people share: it carries the product's name, price and photo for previews.
+app.get('/p/:id', async (req, res) => {
+  try {
+    const item = (await readCatalogItems()).find(entry => String(entry.id) === req.params.id);
+    if (!item) return res.redirect(302, '/');
+    res.set('Cache-Control', 'public, max-age=300').type('html').send(siteMeta.productSharePage(item, siteBaseUrl(req)));
+  } catch (error) {
+    console.error('Share page failed:', error.message);
+    res.redirect(302, '/');
+  }
+});
+app.get(['/', '/index.html', '/privacy.html', '/terms.html', '/account.html', '/admin.html', '/admin-login.html', '/admin-marketplace.html', '/admin-transactions.html', '/reset-password.html'], (req, res, next) => {
+  const pathname = req.path === '/' ? '/' : req.path;
+  const file = path.join(__dirname, 'public', pathname === '/' ? 'index.html' : pathname.slice(1));
+  fs.readFile(file, 'utf8', (error, html) => {
+    if (error) return next();
+    const tags = siteMeta.headTags({ pathname, baseUrl: siteBaseUrl(req), html, analyticsDomain: PLAUSIBLE_DOMAIN });
+    res.set('Cache-Control', 'no-cache').type('html').send(siteMeta.injectHead(html, tags));
+  });
+});
+
 // Uploaded file names are random per upload, so they can be cached hard.
 app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', immutable: true }));
 // Pages and scripts always revalidate (ETag) so a deploy shows up immediately; images are cached for a day.
@@ -819,6 +881,7 @@ async function completeMpesaTransaction(checkoutRequestId, transaction, resultCo
     };
     await marketplace.createPaidOrder(completed);
     await storePendingTransaction(checkoutRequestId, completed);
+    for (const line of (completed.itemLines || [])) analytics.record('paid', { productId: line.itemId }); // counted per item bought
     releaseInventoryReservation(checkoutRequestId);
     return completed;
   });
@@ -1154,6 +1217,36 @@ app.get('/api/admin/transactions', requireAuth, async (req, res) => {
   }
 });
 
+// One-tap backup: everything the shop stores, as a JSON file the admin can keep. Passwords are never included.
+app.get('/api/admin/backup', requireAuth, async (req, res) => {
+  try {
+    const products = await readCatalogItems();
+    const marketplaceData = await marketplace.exportAll();
+    let transactions = [];
+    if (mpesaTransactionsCollection) {
+      const snapshot = await mpesaTransactionsCollection.get();
+      transactions = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    } else {
+      transactions = Array.from(activeMpesaTransactions.values());
+    }
+    let admins = [];
+    if (db) {
+      const snapshot = await db.collection('admins').get();
+      admins = snapshot.docs.map(doc => ({ id: doc.id, username: doc.data().username, email: doc.data().email, title: doc.data().title, role: doc.data().role }));
+    } else {
+      admins = [...localAdmins.values()].map(admin => ({ username: admin.username, email: admin.email, title: admin.title, role: admin.role }));
+    }
+    const backup = { createdAt: new Date().toISOString(), products, mpesaTransactions: transactions, admins, marketplace: marketplaceData };
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="schngor-backup-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (error) {
+    console.error('Backup export failed:', error.message);
+    res.status(500).json({ success: false, message: 'Could not create the backup. Please try again.' });
+  }
+});
+
 // ---- Admin routes (all require a valid session token) ----
 app.post('/api/admin/create', requireAuth, async (req, res) => {
   const { email, password, username } = req.body;
@@ -1353,7 +1446,9 @@ server.headersTimeout = 66000;
 
 function shutdown(signal) {
   console.log(`${signal} received, finishing open requests before exit.`);
-  server.close(() => process.exit(0));
+  // Save any visit counts still waiting in memory before the process ends.
+  const saved = analytics.flush().catch(() => {});
+  server.close(() => saved.finally(() => process.exit(0)));
   setTimeout(() => process.exit(1), 10000).unref();
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
